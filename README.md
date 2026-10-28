@@ -3,6 +3,11 @@
 比赛任务：在 ReSplat 前后接入模块 A / B，端到端（A → ReSplat → B）完成场景重建，
 **总耗时需快于经典 3DGS 训练管线**。
 
+## 额外数据获取地址
+
+- [resplat 权重](https://drive.google.com/file/d/1HRZZWq-PyhhJ9zkDHhVL1IWdxnnIIjdY/view?usp=drive_link)
+- [数据集]()
+
 ## 仓库结构
 
 ```
