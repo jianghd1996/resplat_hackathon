@@ -6,7 +6,7 @@
 ## 额外数据获取地址
 
 - [resplat 权重](https://drive.google.com/file/d/1HRZZWq-PyhhJ9zkDHhVL1IWdxnnIIjdY/view?usp=drive_link)
-- [数据集]()
+- [数据集](https://drive.google.com/drive/folders/1CZWTj9jHh9wVdUru0za69-Mtaz5Fzn16?usp=drive_link)
 
 ## 仓库结构
 
