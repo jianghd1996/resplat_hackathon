@@ -12,6 +12,7 @@ Usage (fastgs conda env, from baseline/):
 
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -66,8 +67,12 @@ def main():
 
     out_r = os.path.join(args.model_path, "test_renders")
     out_g = os.path.join(args.model_path, "test_gt")
-    os.makedirs(out_r, exist_ok=True)
-    os.makedirs(out_g, exist_ok=True)
+    # A scene can be rebuilt with a different registered-image set. Keeping
+    # files from an earlier run silently mixes stale views into evaluation.
+    for directory in (out_r, out_g):
+        if os.path.isdir(directory):
+            shutil.rmtree(directory)
+        os.makedirs(directory)
 
     names = []
     for cam in scene.getTestCameras():
