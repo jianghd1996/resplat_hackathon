@@ -3,13 +3,19 @@
 #
 # Optional overrides:
 #   CONDA_SH=/path/to/conda.sh
-#   RESPLAT_ENV=resplat
-#   FASTGS_ENV=fastgs
+#   RESPLAT_ENV=/path/to/env-or-env-name
+#   FASTGS_ENV=/path/to/env-or-env-name
 #
-# By default Module B reuses the existing resplat environment. If a dedicated
-# FastGS environment is available, run with FASTGS_ENV=fastgs.
+# If a resplat environment is already active, its absolute path is preferred.
+# This avoids selecting the wrong environment when duplicate names exist.
 
-RESPLAT_ENV="${RESPLAT_ENV:-resplat}"
+_ACTIVE_RESPLAT_ENV=""
+if [ -n "${CONDA_PREFIX:-}" ] && \
+   { [ "${CONDA_DEFAULT_ENV:-}" = "resplat" ] || [ "$(basename "$CONDA_PREFIX")" = "resplat" ]; }; then
+  _ACTIVE_RESPLAT_ENV="$CONDA_PREFIX"
+fi
+
+RESPLAT_ENV="${RESPLAT_ENV:-${_ACTIVE_RESPLAT_ENV:-resplat}}"
 FASTGS_ENV="${FASTGS_ENV:-$RESPLAT_ENV}"
 
 if [ -n "${CONDA_SH:-}" ]; then
@@ -37,5 +43,14 @@ activate_env() {
     conda env list >&2 || true
     return 1
   fi
-  echo "[env] active: $env_name ($CONDA_PREFIX)"
+  echo "[env] active: $CONDA_DEFAULT_ENV ($CONDA_PREFIX)"
+}
+
+require_python_module() {
+  local module_name="$1"
+  if ! python -c "import $module_name" >/dev/null 2>&1; then
+    echo "Python module '$module_name' is missing from $CONDA_PREFIX." >&2
+    echo "Python executable: $(command -v python)" >&2
+    return 1
+  fi
 }

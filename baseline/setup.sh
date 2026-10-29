@@ -7,13 +7,16 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 source "$HERE/conda_env.sh"
 activate_env "$FASTGS_ENV"
+require_python_module torch
 
 export CUDA_HOME=${CUDA_HOME:-$CONDA_PREFIX}
 export TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST:-8.9}
 export CC=${CC:-/usr/bin/gcc}
 export CXX=${CXX:-/usr/bin/g++}
 
-echo "[setup] environment: $FASTGS_ENV"
+echo "[setup] environment: $CONDA_DEFAULT_ENV"
+echo "[setup] Python: $(command -v python)"
+echo "[setup] PyTorch: $(python -c 'import torch; print(torch.__version__)')"
 echo "[setup] CUDA_HOME: $CUDA_HOME"
 echo "[setup] TORCH_CUDA_ARCH_LIST: $TORCH_CUDA_ARCH_LIST"
 
