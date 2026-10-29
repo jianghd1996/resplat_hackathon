@@ -17,6 +17,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 COMP="$(cd "$HERE/.." && pwd)"
 NUM_CONTEXT=${NUM_CONTEXT:-16}
 ITERATIONS=${ITERATIONS:-10000}
+USE_FRAMES_INFO=${USE_FRAMES_INFO:-0}
 
 # shellcheck disable=SC1091
 source "$HERE/conda_env.sh"
@@ -46,11 +47,16 @@ for GRP in "${SCENE_GROUPS[@]}"; do
   fi
 
   # ---------------- Module A + ReSplat ----------------
+  MODULE_A_EXTRA_ARGS=()
+  if [ "$USE_FRAMES_INFO" = "1" ]; then
+    MODULE_A_EXTRA_ARGS+=(--use_frames_info)
+  fi
   python "$HERE/module_a/preprocess.py" \
       --scene_dir "$SCENE_DIR" \
       --group "$GRP" \
       --out "$WORK" \
-      --num_context "$NUM_CONTEXT"
+      --num_context "$NUM_CONTEXT" \
+      "${MODULE_A_EXTRA_ARGS[@]}"
 
   export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
   python "$HERE/run_resplat.py" \
