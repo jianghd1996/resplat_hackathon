@@ -1,27 +1,24 @@
 #!/usr/bin/env bash
 # One-click evaluation:
-#   1. render test views with the trained Module-B model (fastgs env)
-#   2. PSNR / SSIM / LPIPS via ReSplat's official metric code (resplat env)
-#   3. summary table (metrics + per-stage timing)
-#
-# Usage:
-#   bash run_eval.sh                 # all groups in scenes.json
-#   bash run_eval.sh dl3dv hw        # subset of groups
+#   1. render held-out test views with Module B
+#   2. compute PSNR / SSIM / LPIPS
+#   3. write the timing and metric summary
 set -eo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ITERATIONS=${ITERATIONS:-10000}
 
-
-source /home/guojunfu/anaconda3/etc/profile.d/conda.sh
-
+# shellcheck disable=SC1091
+source "$HERE/conda_env.sh"
+activate_env "$RESPLAT_ENV"
 
 SCENE_GROUPS=("$@")
 if [ ${#SCENE_GROUPS[@]} -eq 0 ]; then
-  SCENE_GROUPS=($(python -c "import json,sys;print(' '.join(json.load(open('$HERE/scenes.json')).keys()))"))
+  SCENE_GROUPS=($(python -c "import json;print(' '.join(json.load(open('$HERE/scenes.json')).keys()))"))
 fi
 
 for GRP in "${SCENE_GROUPS[@]}"; do
+  activate_env "$RESPLAT_ENV"
   SCENE=$(python -c "import json;print(json.load(open('$HERE/scenes.json'))['$GRP']['scene'])")
   WORK="$HERE/work/$GRP/$SCENE"
   RES="$HERE/results/$GRP/$SCENE"
@@ -30,11 +27,11 @@ for GRP in "${SCENE_GROUPS[@]}"; do
     echo "[$GRP/$SCENE] trained model missing ($MODEL) - skipping"
     continue
   fi
+
   echo ""
   echo "=== [$GRP] $SCENE : render + eval ==="
 
-  # 1. render test views (fastgs env; render_test.py resolves its own backend path)
-  conda activate fastgs
+  activate_env "$FASTGS_ENV"
   python "$HERE/render_test.py" \
       -s "$WORK" \
       -m "$MODEL" \
@@ -42,13 +39,10 @@ for GRP in "${SCENE_GROUPS[@]}"; do
       --backend fastgs \
       --iteration "$ITERATIONS" \
       --quiet
-  conda deactivate
 
-  # 2. metrics (resplat env)
-  conda activate resplat
+  activate_env "$RESPLAT_ENV"
   python "$HERE/evaluate.py" --model_path "$MODEL"
-  conda deactivate
 done
 
-# 3. summary
+activate_env "$RESPLAT_ENV"
 python "$HERE/summarize.py" --work "$HERE/work" --results "$HERE/results" --out "$HERE/results"
