@@ -160,6 +160,92 @@ def load_transforms_json(scene_dir):
 
 
 # ----------------------------------------------------------------------------
+# Experimental pose source: frames_info.txt
+# ----------------------------------------------------------------------------
+
+def load_frames_info(scene_dir):
+    """Convert the raw AR dump to the internal COLMAP-equivalent convention.
+
+    Assumptions for this experiment:
+      * rotX/Y/Z/W is an OpenCV world-to-camera quaternion.
+      * posX/Y/Z is the camera center in the AR world frame.
+      * zero principal coordinates mean the image center.
+
+    The rotations were previously found to be plausible, but the positions are
+    not geometrically validated. This loader is therefore opt-in only.
+    """
+    path = os.path.join(scene_dir, "frames_info.txt")
+    if not os.path.exists(path):
+        return None
+
+    import scipy.spatial.transform as sst
+
+    image_dir = os.path.join(scene_dir, "images")
+    poses = {}
+    camera = None
+    skipped = 0
+
+    with open(path) as f:
+        for line_no, line in enumerate(f, 1):
+            if line.startswith("#") or not line.strip():
+                continue
+            fields = line.split()
+            if len(fields) < 15:
+                print(f"  [warn] frames_info line {line_no}: expected 15 fields")
+                skipped += 1
+                continue
+
+            timestamp = fields[1]
+            fx, fy = float(fields[2]), float(fields[3])
+            cx, cy = float(fields[4]), float(fields[5])
+            width, height = int(float(fields[6])), int(float(fields[7]))
+            center = np.asarray([float(v) for v in fields[8:11]], dtype=np.float64)
+            quat_xyzw = np.asarray([float(v) for v in fields[11:15]], dtype=np.float64)
+
+            quat_norm = np.linalg.norm(quat_xyzw)
+            if not np.isfinite(quat_norm) or quat_norm < 1e-8:
+                print(f"  [warn] frames_info line {line_no}: invalid quaternion")
+                skipped += 1
+                continue
+            quat_xyzw /= quat_norm
+            R_w2c = sst.Rotation.from_quat(quat_xyzw).as_matrix()
+            t_w2c = -(R_w2c @ center)
+
+            image_name = None
+            for ext in (".jpg", ".jpeg", ".png"):
+                candidate = timestamp + ext
+                if os.path.exists(os.path.join(image_dir, candidate)):
+                    image_name = candidate
+                    break
+            if image_name is None:
+                skipped += 1
+                continue
+
+            if abs(cx) < 1e-9:
+                cx = width / 2.0
+            if abs(cy) < 1e-9:
+                cy = height / 2.0
+            if camera is None:
+                camera = {
+                    "model": "PINHOLE", "W": width, "H": height,
+                    "fx": fx, "fy": fy, "cx": cx, "cy": cy,
+                }
+            poses[image_name] = (R_w2c, t_w2c)
+
+    if camera is None or not poses:
+        raise RuntimeError(f"frames_info.txt produced no usable image/pose pairs: {path}")
+
+    camera.update({
+        "poses": poses,
+        "source": "frames_info.txt_raw",
+        "frames_position_mode": "camera_center",
+        "frames_rotation_mode": "opencv_w2c_xyzw",
+        "frames_skipped": skipped,
+    })
+    return camera
+
+
+# ----------------------------------------------------------------------------
 # Pose source 3/4: run COLMAP
 # ----------------------------------------------------------------------------
 
@@ -411,6 +497,9 @@ def main():
     ap.add_argument("--num_context", type=int, default=16)
     ap.add_argument("--llffhold", type=int, default=8)
     ap.add_argument("--max_resolution", type=int, default=960)
+    ap.add_argument(
+        "--use_frames_info", action="store_true",
+        help="EXPERIMENTAL: use raw frames_info AR poses instead of running COLMAP")
     ap.add_argument("--tmp_root", default=None,
                     help="scratch dir for COLMAP runs (default: <out>_colmap_tmp)")
     args = ap.parse_args()
@@ -429,32 +518,44 @@ def main():
             pose_dict = tj
         else:
             fi = os.path.join(args.scene_dir, "frames_info.txt")
-            reason = ("frames_info.txt present but AR positions are geometrically "
-                      "invalid (see README); running COLMAP" if os.path.exists(fi)
-                      else "no poses found; running COLMAP")
-            print(f"[A] {reason}")
-            t0 = time.time()
-            if os.path.exists(fi):
-                # images referenced by frames_info only (excludes poster PNG etc.)
-                keep = set()
-                with open(fi) as f:
-                    for line in f:
-                        if line.startswith("#") or not line.strip():
-                            continue
-                        p = line.split()
-                        if len(p) >= 15:
-                            keep.add(p[1] + ".jpg")
-                all_imgs = []
-                d = os.path.join(args.scene_dir, "images")
-                for n in sorted(os.listdir(d)):
-                    if os.path.splitext(n)[1].lower() in IMAGE_EXTS and n in keep:
-                        all_imgs.append(os.path.join(d, n))
+            if args.use_frames_info:
+                pose_dict = load_frames_info(args.scene_dir)
+                if pose_dict is None:
+                    raise FileNotFoundError(
+                        f"--use_frames_info requested but file is missing: {fi}")
+                print(
+                    "[A] EXPERIMENTAL: using raw frames_info poses "
+                    f"({len(pose_dict['poses'])} image/pose pairs; no COLMAP)")
+                print(
+                    "[A] WARNING: AR positions are not geometrically validated; "
+                    "results are not comparable to the COLMAP baseline")
             else:
-                all_imgs = [p for _, p in natural_image_list(args.scene_dir, None)]
-            tmp = args.tmp_root or (args.out.rstrip("/") + "_colmap_tmp")
-            pose_dict = run_colmap(all_imgs, tmp)
-            pose_dict["colmap_seconds"] = time.time() - t0
-            print(f"[A] COLMAP done in {pose_dict['colmap_seconds']:.1f}s")
+                reason = ("frames_info.txt present but AR positions are geometrically "
+                          "invalid (see README); running COLMAP" if os.path.exists(fi)
+                          else "no poses found; running COLMAP")
+                print(f"[A] {reason}")
+                t0 = time.time()
+                if os.path.exists(fi):
+                    # images referenced by frames_info only (excludes poster PNG etc.)
+                    keep = set()
+                    with open(fi) as f:
+                        for line in f:
+                            if line.startswith("#") or not line.strip():
+                                continue
+                            fields = line.split()
+                            if len(fields) >= 15:
+                                keep.add(fields[1] + ".jpg")
+                    all_imgs = []
+                    d = os.path.join(args.scene_dir, "images")
+                    for name in sorted(os.listdir(d)):
+                        if os.path.splitext(name)[1].lower() in IMAGE_EXTS and name in keep:
+                            all_imgs.append(os.path.join(d, name))
+                else:
+                    all_imgs = [path for _, path in natural_image_list(args.scene_dir, None)]
+                tmp = args.tmp_root or (args.out.rstrip("/") + "_colmap_tmp")
+                pose_dict = run_colmap(all_imgs, tmp)
+                pose_dict["colmap_seconds"] = time.time() - t0
+                print(f"[A] COLMAP done in {pose_dict['colmap_seconds']:.1f}s")
 
     # ---- work dir ----------------------------------------------------------
     split, resize_time = write_work_dir(
@@ -466,6 +567,7 @@ def main():
         "group": args.group,
         "scene_dir": os.path.abspath(args.scene_dir),
         "pose_source": pose_dict["source"],
+        "experimental_frames_info": pose_dict["source"] == "frames_info.txt_raw",
         "pose_estimation_seconds": pose_dict.get("colmap_seconds", 0.0),
         "resize_seconds": resize_time,
         "total_seconds": elapsed,
