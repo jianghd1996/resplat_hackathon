@@ -1,6 +1,7 @@
 # run artifacts
 baseline/work/
 baseline/results/
+baseline/.deps/
 resplat/pretrained/
 resplat/outputs/
 resplat/results/
