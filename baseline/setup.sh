@@ -21,7 +21,10 @@ if [ -z "${CUDA_HOME:-}" ]; then
   fi
 fi
 export CUDA_HOME
-export TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST:-8.9}
+if [ -z "${TORCH_CUDA_ARCH_LIST:-}" ]; then
+  TORCH_CUDA_ARCH_LIST="$(python -c 'import torch; major, minor = torch.cuda.get_device_capability(); print(f"{major}.{minor}")')"
+fi
+export TORCH_CUDA_ARCH_LIST
 export CC=${CC:-/usr/bin/gcc}
 export CXX=${CXX:-/usr/bin/g++}
 
@@ -35,6 +38,11 @@ install_extension() {
   local source_dir="$1"
   local label="$2"
   echo "=== installing $label ==="
+  # Remove objects compiled for a different GPU architecture.
+  (
+    cd "$source_dir"
+    python setup.py clean --all >/dev/null 2>&1 || true
+  )
   python -m pip install --no-build-isolation --no-deps --force-reinstall "$source_dir"
 }
 
@@ -64,6 +72,8 @@ import diff_gaussian_rasterization_fastgs
 
 print("torch:", torch.__version__)
 print("CUDA available:", torch.cuda.is_available())
+print("GPU:", torch.cuda.get_device_name())
+print("compute capability:", ".".join(map(str, torch.cuda.get_device_capability())))
 print("all CUDA extension imports: OK")
 PY
 
