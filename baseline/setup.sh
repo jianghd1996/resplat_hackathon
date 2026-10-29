@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# One-time setup: build the vendored 3DGS CUDA submodules in the fastgs env.
-# (The resplat env is assumed to be already installed per resplat/README.md.)
+# One-time setup: build vendored CUDA extensions.
 set -eo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
-source /home/guojunfu/anaconda3/etc/profile.d/conda.sh
-conda activate fastgs
-
+# shellcheck disable=SC1091
+source "$HERE/conda_env.sh"
+activate_env "$FASTGS_ENV"
 
 export CUDA_HOME=${CUDA_HOME:-$CONDA_PREFIX}
 export TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST:-8.9}
 export CC=${CC:-/usr/bin/gcc}
 export CXX=${CXX:-/usr/bin/g++}
+
+echo "[setup] environment: $FASTGS_ENV"
+echo "[setup] CUDA_HOME: $CUDA_HOME"
+echo "[setup] TORCH_CUDA_ARCH_LIST: $TORCH_CUDA_ARCH_LIST"
 
 for mod in diff-gaussian-rasterization simple-knn fused-ssim; do
   echo "=== building $mod ==="
