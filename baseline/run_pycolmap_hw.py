@@ -72,16 +72,18 @@ def extract_features(
     database_path: Path,
     image_dir: Path,
     camera_model: str,
+    camera_mode: str,
     device: Any,
 ) -> None:
     """Call the current API, with a fallback for PyCOLMAP 0.6/3.11."""
+    mode = getattr(pycolmap.CameraMode, camera_mode.upper())
     try:
         reader_options = pycolmap.ImageReaderOptions()
         reader_options.camera_model = camera_model
         pycolmap.extract_features(
             database_path=database_path,
             image_path=image_dir,
-            camera_mode=pycolmap.CameraMode.SINGLE,
+            camera_mode=mode,
             reader_options=reader_options,
             device=device,
         )
@@ -90,7 +92,7 @@ def extract_features(
         pycolmap.extract_features(
             database_path=database_path,
             image_path=image_dir,
-            camera_mode=pycolmap.CameraMode.SINGLE,
+            camera_mode=mode,
             camera_model=camera_model,
             device=device,
         )
@@ -178,7 +180,7 @@ def reconstruct_scene(scene_dir: Path, args: argparse.Namespace) -> dict[str, An
     print("=" * 72)
     print(f"[START] {scene_dir.name}")
     print(f"  images:       {len(names)} ({image_dir})")
-    print(f"  camera model: {args.camera_model}, single camera")
+    print(f"  camera:       {args.camera_mode.upper()} + {args.camera_model}")
     print(f"  matcher:      {matcher}")
     print(f"  device:       {args.device}")
     print(f"  output:       {output_dir}")
@@ -189,7 +191,9 @@ def reconstruct_scene(scene_dir: Path, args: argparse.Namespace) -> dict[str, An
     device = pycolmap_device(args.device)
 
     t0 = time.perf_counter()
-    extract_features(database_path, image_dir, args.camera_model, device)
+    extract_features(
+        database_path, image_dir, args.camera_model, args.camera_mode, device
+    )
     stage_times["feature_extraction_seconds"] = time.perf_counter() - t0
     print(f"[{scene_dir.name}] feature extraction: "
           f"{stage_times['feature_extraction_seconds']:.1f}s", flush=True)
@@ -231,7 +235,7 @@ def reconstruct_scene(scene_dir: Path, args: argparse.Namespace) -> dict[str, An
         "status": "ok",
         "pycolmap_version": getattr(pycolmap, "__version__", "unknown"),
         "camera_model": args.camera_model,
-        "camera_mode": "SINGLE",
+        "camera_mode": args.camera_mode.upper(),
         "matcher": matcher,
         "device": args.device,
         "num_input_images": len(names),
@@ -290,8 +294,16 @@ def main() -> int:
     )
     parser.add_argument("--root", type=Path, default=default_root)
     parser.add_argument(
-        "--camera-model", default="OPENCV",
+        "--camera-model", default="SIMPLE_RADIAL",
         choices=["SIMPLE_PINHOLE", "PINHOLE", "SIMPLE_RADIAL", "RADIAL", "OPENCV"],
+    )
+    parser.add_argument(
+        "--camera-mode", choices=["auto", "single"], default="auto",
+        help=(
+            "PyCOLMAP image-reader camera grouping. The default reproduces "
+            "extract_features(database, images); use single only when all "
+            "images are known to share one calibration."
+        ),
     )
     parser.add_argument(
         "--matcher", choices=["auto", "exhaustive", "sequential"], default="auto"
@@ -353,3 +365,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
