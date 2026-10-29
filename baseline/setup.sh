@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # One-time setup: install the CUDA extensions used by classic 3DGS and FastGS.
+# Use regular wheels rather than editable wheels: simple-knn's legacy setup.py
+# does not expose its extension namespace correctly through PEP 660 editable installs.
 set -eo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -33,7 +35,7 @@ install_extension() {
   local source_dir="$1"
   local label="$2"
   echo "=== installing $label ==="
-  python -m pip install --no-build-isolation --no-deps -e "$source_dir"
+  python -m pip install --no-build-isolation --no-deps --force-reinstall "$source_dir"
 }
 
 # Shared helpers and the classic renderer are vendored in this repository.
