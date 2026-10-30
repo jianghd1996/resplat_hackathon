@@ -1,7 +1,7 @@
-"""Run one v1 configuration across the three benchmark scenes on two GPUs.
+"""Run one fixed-seed v1 configuration across the three benchmark scenes on two GPUs.
 
-Example: python scripts/run_v1.py --backend no_reset --repeat r0
-The result directory includes backend, budget, seed and repeat; never overwrites.
+Example: python scripts/run_v1.py --backend terminal_guard
+The result directory follows the established A/B module naming convention.
 """
 import argparse
 import concurrent.futures
@@ -19,8 +19,8 @@ RESPLAT_PY = Path("/home/wangyb/miniconda3/envs/resplat/bin/python")
 FASTGS_PY = Path("/home/wangyb/miniconda3/envs/fastgs/bin/python")
 
 
-def job(group, info, backend, seed, repeat, gpu, commit):
-    label = f"baseline_A_{backend}7000_seed{seed}{repeat}_B"
+def job(group, info, backend, gpu, commit):
+    label = f"baseline_A_{backend}7000_B"
     output = ROOT / "results" / label / group / info["scene"]
     if output.exists():
         raise FileExistsError(f"Refusing to overwrite experiment: {output}")
@@ -31,10 +31,9 @@ def job(group, info, backend, seed, repeat, gpu, commit):
            "--module-a", "uniform16", "--module-b", backend,
            "--iterations", "7000", "--fastgs-python", str(FASTGS_PY)]
     env = os.environ.copy()
-    env.update(CUDA_VISIBLE_DEVICES=str(gpu), V1_SEED=str(seed),
-               PYTHONUNBUFFERED="1")
-    manifest = {"backend": backend, "iterations": 7000, "seed": seed,
-                "repeat": repeat, "gpu_physical_index": gpu, "git_commit": commit,
+    env.update(CUDA_VISIBLE_DEVICES=str(gpu), PYTHONUNBUFFERED="1")
+    manifest = {"backend": backend, "iterations": 7000, "seed": 0,
+                "gpu_physical_index": gpu, "git_commit": commit,
                 "command": cmd, "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat()}
     (output / "v1_run.json").write_text(json.dumps(manifest, indent=2) + "\n")
     with (output / "pipeline.log").open("w") as log:
@@ -51,20 +50,16 @@ def job(group, info, backend, seed, repeat, gpu, commit):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--backend", choices=("no_reset", "terminal_guard", "topology_freeze"), required=True)
-    ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--repeat", required=True, help="Unique identifier, e.g. r0 or r1")
+    ap.add_argument("--backend", choices=("terminal_guard", "topology_freeze"), required=True)
     ap.add_argument("--groups", nargs="+", choices=tuple(SCENES), default=list(SCENES))
     ap.add_argument("--gpus", nargs="+", type=int, choices=(0, 1), default=[0, 1])
     args = ap.parse_args()
-    if not args.repeat.isalnum():
-        ap.error("--repeat must be alphanumeric")
     if not all(p.is_file() for p in (RESPLAT_PY, FASTGS_PY)):
         ap.error("configured conda Python missing")
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     tasks = [(group, SCENES[group]) for group in args.groups]
     for group, info in tasks:
-        target = ROOT / "results" / f"baseline_A_{args.backend}7000_seed{args.seed}{args.repeat}_B" / group / info["scene"]
+        target = ROOT / "results" / f"baseline_A_{args.backend}7000_B" / group / info["scene"]
         if target.exists():
             ap.error(f"experiment output already exists: {target}")
     pending = queue.Queue()
@@ -78,7 +73,7 @@ def main():
             except queue.Empty:
                 break
             try:
-                job(group, info, args.backend, args.seed, args.repeat, gpu, commit)
+                job(group, info, args.backend, gpu, commit)
             finally:
                 pending.task_done()
 

@@ -28,8 +28,7 @@ def main():
             parser.error("train requires --init-ply")
         command = train_command(args.work, args.out, args.init_ply, args.iterations)
         command.extend(["--skip_final_opacity_reset", "--position_lr_max_steps",
-                        str(args.iterations), "--disable_opacity_reset", "--seed",
-                        os.environ.get("V1_SEED", "0")])
+                        str(args.iterations), "--disable_opacity_reset"])
     else:
         command = render_command(args.work, args.out, args.iterations)
     env = os.environ.copy()
