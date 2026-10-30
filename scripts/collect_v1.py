@@ -8,7 +8,7 @@ TARGET = ROOT / "md/main_table_v1.md"
 SCENES = json.loads((ROOT / "baseline/scenes.json").read_text())
 START = "<!-- V1_RESULTS_START -->"
 END = "<!-- V1_RESULTS_END -->"
-BACKENDS = ("no_reset", "terminal_guard", "topology_freeze")
+BACKENDS = ("terminal_guard", "topology_freeze")
 
 
 def read(path):
@@ -46,25 +46,32 @@ def main():
         base[group] = read(RESULTS / "baseline_A_baseline_B" / rel /
                            "module_b/metrics.json")["mean"]
 
-    lines = ["## v1 完整管线实验", "",
-             "原10000步本机基线见上节。以下每行来自独立完整的A→ReSplat→B→测试渲染→评估；",
-             "括号内同时给出相对原10000步基线的Δ与相同seed/重复号的v1 `no_reset7000`控制Δ，顺序为`Δ原/Δ控制`。",
-             "控制自身的`Δ控制`为0；无对应控制的候选不进入配对比较。",
+    lines = ["## v1 新模块实验", "",
+             "原10000步本机基线见上节；`no_reset7000`是`main_table.md`中已有的v0模块，本轮只作为配对控制。",
+             "主表每个新模块、每个场景只保留一次预先指定的seed=0首跑（r0）。同seed重复运行放在下方的复验摘要，不计作新实验行。",
+             "以下每行来自独立完整的A→ReSplat→B→测试渲染→评估；",
+             "括号内同时给出相对原10000步基线的Δ与相同seed的本轮`no_reset7000`控制Δ，顺序为`Δ原/Δ控制`。",
              "三场景均固定16 context、7000步、相同官方权重和留出集。时间为各自同一次运行分段求和；",
              "B/30k使用历史同机同分辨率纯训练参考，双GPU同时运行可能改变时间，单独报告GPU编号。",
              "原始PLY、PNG和JSON保留在本机`results/`。", ""]
     for backend in BACKENDS:
         records = []
-        for path in sorted(RESULTS.glob(f"baseline_A_{backend}7000_seed*_B")):
-            for group, info in SCENES.items():
-                item = row(path / group / info["scene"])
-                if item:
-                    records.append((path.name, group, info["scene"], item))
+        path = RESULTS / f"baseline_A_{backend}7000_seed0r0_B"
+        for group, info in SCENES.items():
+            item = row(path / group / info["scene"])
+            if item:
+                records.append((path.name, group, info["scene"], item))
         if not records:
             continue
         lines.extend([f"### uniform16(A) + {backend}7000(B)", ""])
-        lines.append("| 运行 | GPU | 场景 | PSNR (Δ原/Δ控制) | SSIM (Δ原/Δ控制) | LPIPS (Δ原/Δ控制) | A(s) | ReSplat(s) | B(s) (Δ控制) | 总(s) | B/30k | 输入PLY同控制 |")
-        lines.append("|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---|")
+        if backend == "terminal_guard":
+            lines.extend(["单项改动：只跳过第7000步的增密/剪枝及其透明度0.8限幅；总步数、学习率日程、",
+                          "周期重置关闭状态与`no_reset7000`控制相同。", ""])
+        elif backend == "topology_freeze":
+            lines.extend(["单项改动：第5600步后停止增密，后1400步继续优化已有高斯；",
+                          "总步数与学习率日程同`no_reset7000`控制。", ""])
+        lines.append("| GPU | 场景 | PSNR (Δ原/Δ控制) | SSIM (Δ原/Δ控制) | LPIPS (Δ原/Δ控制) | A(s) | ReSplat(s) | B(s) (Δ控制) | 总(s) | B/30k | 输入PLY同控制 |")
+        lines.append("|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---|")
         for name, group, scene, item in records:
             original = base[group]
             control_path = RESULTS / name.replace(backend, "no_reset", 1) / group / scene
@@ -82,13 +89,41 @@ def main():
             b_delta = item["b"]-control["b"] if control else float("nan")
             same_ply = "是" if control and item["ply_sha256"] == control["ply_sha256"] else "待核/否"
             lines.append("| " + " | ".join([
-                name.split("_seed")[-1][:-2], str(item["gpu"]), group + "/" + scene[:12],
+                str(item["gpu"]), group + "/" + scene[:12],
                 metric("psnr", 3), metric("ssim", 4), metric("lpips", 4),
                 f'{item["a"]:.2f}', f'{item["resplat"]:.2f}',
                 cell(item["b"], b_delta, 2), f'{item["total"]:.2f}',
                 f'{100*item["b"]/budget:.2f}%', same_ply]) + " |")
-        lines.extend(["", f"运行代码提交：`{records[0][3]['commit'][:12]}`。",
-                      "指标与时间为单次原始测量；同seed重复与跨seed波动需要在结论中单独说明。", ""])
+        commits = ", ".join(f"`{revision}`" for revision in sorted({
+            rec[3]["commit"][:12] for rec in records}))
+        lines.extend(["", f"运行记录中的提交：{commits}；逐行提交见本机 `v1_run.json`。",
+                      "本表为单次结果；重复波动见下方复验摘要。", ""])
+        if backend == "terminal_guard" and len(records) == 3:
+            lines.extend(["DL3DV的LPIPS较配对控制低0.0028；HW低约0.0010；counter在四位小数口径不变。",
+                          "B用时仅DL3DV缩短，另两场景增加；本次单项结果不能宣称跨场景加速，",
+                          "也不能仅凭DL3DV一次改善确认通用质量收益。", ""])
+
+    lines.extend(["### 已有配置 `no_reset7000` 的复验摘要（非新模块）", "",
+                  "历史配置与结果见`main_table.md`。为评估本轮运行波动，使用相同seed=0独立执行两次完整管线；",
+                  "`r0`/`r1`是第一次/第二次运行，不代表不同算法或不同seed。以下每个场景只占一行。",
+                  "双GPU调度时，某场景两次可能落在不同GPU，因此B用时仅作波动参考。", "",
+                  "| 场景 | v0 PSNR / LPIPS | 本轮r0 PSNR / LPIPS / B(s) | 本轮r1 PSNR / LPIPS / B(s) | 输入PLY一致 |",
+                  "|---|---|---|---|---|"])
+    for group, info in SCENES.items():
+        scene = info["scene"]
+        rel = Path(group) / scene
+        old = read(RESULTS / "baseline_A_no_reset7000_B" / rel / "module_b/metrics.json")["mean"]
+        control = [row(RESULTS / f"baseline_A_no_reset7000_seed0r{i}_B" / rel) for i in (0, 1)]
+
+        def summary(item):
+            return (f'{item["metrics"]["psnr"]:.3f} / {item["metrics"]["lpips"]:.4f} / '
+                    f'{item["b"]:.2f}') if item else "—"
+
+        same = ("是" if all(control) and control[0]["ply_sha256"] == control[1]["ply_sha256"]
+                else "待核")
+        lines.append(f'| {group}/{scene[:12]} | {old["psnr"]:.3f} / {old["lpips"]:.4f} | '
+                     f'{summary(control[0])} | {summary(control[1])} | {same} |')
+    lines.append("")
 
     source = TARGET.read_text()
     content = "\n".join(lines).rstrip()+"\n"
@@ -100,7 +135,7 @@ def main():
         output = source.replace("待首轮实验填入。每个重复运行使用唯一目录；`results/` 中的原始 JSON、PLY、PNG 与日志留在本机。",
                                 START+"\n"+content+END)
     TARGET.write_text(output)
-    print(f"updated {TARGET} from {len([1 for b in BACKENDS for p in RESULTS.glob(f'baseline_A_{b}7000_seed*_B') for g,i in SCENES.items() if (p/g/i['scene']/'report.json').exists()])} completed scene-runs")
+    print(f"updated {TARGET} with one main-table row per completed v1 module and scene")
 
 
 if __name__ == "__main__":
