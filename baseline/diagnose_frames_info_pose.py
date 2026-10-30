@@ -246,10 +246,18 @@ def camera_intrinsics_summary(reconstruction: Any) -> list[dict[str, Any]]:
     items = cameras.values() if hasattr(cameras, "values") else cameras
     output = []
     for camera in items:
+        model = camera.model
+        if callable(model):
+            model = model()
+        model_name = getattr(model, "name", None)
+        if callable(model_name):
+            model_name = model_name()
+        if model_name is None:
+            model_name = str(model)
         output.append(
             {
                 "camera_id": int(camera.camera_id),
-                "model": str(camera.model_name),
+                "model": str(model_name),
                 "width": int(camera.width),
                 "height": int(camera.height),
                 "params": np.asarray(camera.params).tolist(),
