@@ -81,3 +81,6 @@ python collect_results.py --experiment fps_A_baseline_B --format both
 位置学习率衰减终点缩至该预算，结果写到
 `results/baseline_A_short_schedule7000_B/`。两个模块都保留原始失败结果及
 阶段 JSON；详细假设、判据和实测结论见 `md/plan_v0.md` 与 `md/main_table.md`。
+收集脚本会从同机同场景的 `baseline_A_baseline_B` 目录读取 30k 参考并在
+JSON 的 `reference_source` 标明来源；各实验的 A、ReSplat、B 时间始终从
+该实验自身的阶段 JSON 读取。
