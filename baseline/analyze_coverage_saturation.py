@@ -363,7 +363,7 @@ def report_markdown(rows, aggregate, correlations, args):
                      f"{100 * row['budget12_to16_union_gain']:.2f} pp | "
                      f"{'yes' if row['coverage_saturated'] else 'no'} | {psnr} |")
     lines.extend(["", "## Strategy averages", "",
-                  "| strategy | scenes | saturated | PSNR | union/all train | test >=2 | last 4 gain | ΔPSNR vs uniform | Δtest >=2 |",
+                  "| strategy | scenes | saturated | PSNR | union/all train | test >=2 | 12→16 gain | ΔPSNR vs uniform | Δtest >=2 |",
                   "|---|---:|---:|---:|---:|---:|---:|---:|---:|"])
     for row in aggregate:
         def show(value, digits=3):
@@ -380,7 +380,7 @@ def report_markdown(rows, aggregate, correlations, args):
         lines.append(f"- {name}: {'unavailable' if value is None else f'{value:.3f}'}")
     lines.extend(["", "## Saturation rule", "",
                   f"A case is marked saturated when union/all-train >= {args.saturation_ratio:.2f}, "
-                  f"test support >=1 >= {args.test_support_ratio:.2f}, and the final four views add "
+                  f"test support >=1 >= {args.test_support_ratio:.2f}, and increasing the strategy's budget from 12 to 16 adds "
                   f"<= {100 * args.max_budget_gain:.1f} percentage points of union coverage.", "",
                   "This validates geometric view coverage, not texture, occlusion, exposure, or "
                   "ReSplat's learned input-distribution preference."])
