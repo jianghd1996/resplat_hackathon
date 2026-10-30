@@ -16,7 +16,9 @@
 
 ## 正式三场景训练和测试
 
-待正在运行的 hw 重建完成、`billboard/sparse/0/pycolmap_undistorted.json` 与 `images_undistorted/` 均存在后：
+确认 `billboard/sparse/0/pycolmap_undistorted.json` 与配套的
+`images_undistorted/` 均存在后运行；缺少位姿时先按 `baseline/README.md` 的
+PyCOLMAP 命令建图：
 
 ```bash
 cd /mnt/DataPart/jianghongda/wangyanbin_resplat/resplat_hackathon
@@ -56,3 +58,26 @@ python baseline/collect_results.py --experiment baseline_A_baseline_B
 ```
 
 收集命令打印 Markdown 表格和 JSON，可复制给维护总表的人；它也会读取常规 `metrics.json` 和各阶段计时文件。计时口径需同时记录位姿是否预先缓存：复用 `sparse/0` 的 A 时间不包含首次 PyCOLMAP 建图。
+
+## 本机实验命令
+
+本机两个 Conda 环境分别为 `/home/wangyb/miniconda3/envs/resplat` 和
+`/home/wangyb/miniconda3/envs/fastgs`。从仓库根目录运行，例如单 A 的 FPS：
+
+```bash
+cd baseline
+RESPLAT_ENV=/home/wangyb/miniconda3/envs/resplat \
+FASTGS_ENV=/home/wangyb/miniconda3/envs/fastgs \
+  bash run_train.sh --module-a fps --module-b fastgs
+RESPLAT_ENV=/home/wangyb/miniconda3/envs/resplat \
+FASTGS_ENV=/home/wangyb/miniconda3/envs/fastgs \
+  bash run_eval.sh --module-a fps --module-b fastgs
+python collect_results.py --experiment fps_A_baseline_B --format both
+```
+
+短预算 B 通过 `ITERATIONS` 统一设置训练和评估步数，例如 `ITERATIONS=7000`
+配合 `--module-a uniform16 --module-b short_budget`，结果写到
+`results/baseline_A_short_budget7000_B/`。`short_schedule` 在同样步数上只把
+位置学习率衰减终点缩至该预算，结果写到
+`results/baseline_A_short_schedule7000_B/`。两个模块都保留原始失败结果及
+阶段 JSON；详细假设、判据和实测结论见 `md/plan_v0.md` 与 `md/main_table.md`。

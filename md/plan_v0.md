@@ -22,13 +22,51 @@
   留出视角渲染与根目录 README 的指标。HW 使用预建 PyCOLMAP 位姿。
 - [ ] P0：在相同分辨率和训练视角口径下实测本机经典 3DGS 的 `T_iter`，再确认
   `time_B < 30000 × T_iter`。历史 4090 参考不能代替本机测量。
-- [ ] P1 / FPS A：`fps.py` 仅从训练相机中心确定性选择 16 张，起点为距训练相机
+- [x] P1 / FPS A：`fps.py` 仅从训练相机中心确定性选择 16 张，起点为距训练相机
   均值最远的相机，之后重复选离已选集合最近距离最大的相机；并列时选训练顺序
   靠前者。假设空间覆盖改善可降低留出集 LPIPS。相对 `uniform16 + fastgs`
   保持相同 10000 步、权重、分辨率和拆分。预处理成本为一次相机中心计算和
   16 次距离扫描；若三场景中至少两组 LPIPS 无改善，或任一组 PSNR 下降超过
   0.5 dB，则不将 FPS 进入组合实验。
+  三场景已完成：LPIPS 相对基线依次变化 -0.0002、-0.0007、+0.0085；
+  `counter` 的固定点集视锥覆盖率从 99.1% 降到 96.6%，角度间隙增大。
+  虽然前两组有微小改善，但总体没有稳定收益，本轮不进入 A/B 组合。
 - [ ] P1 / 短预算 B：先以相同上游 PLY 和统一训练配置比较 100、300、1000、
   3000、10000 步；0 步需确认标准 PLY 直接渲染的相机和色彩口径后单列。
   主要比较 LPIPS 与 B 耗时；先找三场景中均保持 PSNR 下降小于 0.5 dB、
   LPIPS 增幅小于 0.01 的最短预算，再单独消融学习率调度和 opacity 重置。
+  `billboard` 门槛试验显示 100/300/1000 步 LPIPS 均明显变差；原始 3000 步
+  恰逢默认 opacity 重置并立即保存，PSNR 跌至 5.598。跳过末步重置后恢复到
+  22.597 / 0.7818 / 0.1841，仍未满足 LPIPS 门槛。下一轮扩大到 5000、7000
+  步寻找质量与时间的转折点；原始失败产物单独保存，不覆盖。7000 步的
+  `billboard` 通过门槛，但 DL3DV 和 `counter` 的 PSNR 分别下降 0.778、
+  0.634 dB，不能跨场景采用。
+- [ ] P1 / `short_schedule` B：固定 7000 步和其余 FastGS 参数，只将位置学习率
+  衰减终点从 30000 改为 7000；相对 `short_budget7000` 控制组隔离此参数。
+  假设短程内更快到达低学习率可补回留出集 PSNR/LPIPS。先用 DL3DV 作为
+  失败场景门槛；若 PSNR 与 LPIPS 同时改善，再跑另外两组。B 时间预计与
+  7000 步相近；若仍不满足三场景 PSNR 下降 <0.5 dB、LPIPS 增幅 <0.01，
+  不进入组合实验。
+
+## 待实验模块扩充（2026-10-30 检索，均未在本项目验证）
+
+- [ ] P1 / `utils_A/pose_coverage.py`：FPS 在 `counter` 上降低固定点集的视锥
+  覆盖率，说明相机中心距离遗漏方向与可见性。以训练相机中心和前向方向构造
+  跨场景归一化的姿态距离，贪心选 16 张；统一权重，不使用测试相机或测试图像。
+  预计只增加相机数量乘以 16 的几何计算。对照 `uniform16` 与 `fps`，失败判据
+  沿用三场景 LPIPS/PSNR，并核对同一点集视锥覆盖率。此候选是受
+  [Chen 等，CVPR 2026，Coverage Optimization for Camera View Selection](https://openaccess.thecvf.com/content/CVPR2026/html/Chen_Coverage_Optimization_for_Camera_View_Selection_CVPR_2026_paper.html)
+  启发的低成本近似；论文的方法依赖场景覆盖信息，我们的姿态代理并非其实现。
+- [ ] P2 / `utils_A/frequency_quality.py`：用统一的归一化频域得分衡量候选帧
+  细节，再与覆盖度共同选帧；需排查噪声、运动模糊和高频纹理导致的误选。
+  每帧 FFT 增加 A 时间，先在三组固定拆分上离线计算，再决定是否进入完整流水线。
+  来源：[Li 等，2024，Frequency-based View Selection in Gaussian Splatting Reconstruction](https://arxiv.org/abs/2409.16470)。
+- [ ] P2 / 短程 B 调度：在已找到的有效迭代预算上，分别测试缩短位置学习率
+  日程与跳过非末步 opacity 重置；一次只变一个参数，记录高斯数量、LPIPS 和
+  B 时间。默认末步重置导致的 3000 步崩溃是本项目已观察到的实现问题。
+  [Hahlbohm 等，CVPR 2026，Faster-GS](https://openaccess.thecvf.com/content/CVPR2026/html/Hahlbohm_Faster-GS_Analyzing_and_Improving_Gaussian_Splatting_Optimization_CVPR_2026_paper.html)
+  可作为后续优化策略的外部参考，论文性能不作为本项目预期值。
+- [ ] P3 / 信息量选帧：如轻量覆盖代理仍无效，再评估
+  [FisherRF，ECCV 2024](https://www.ecva.net/papers/eccv_2024/papers_ECCV/papers/02130.pdf)
+  的 Fisher 信息思想；需要额外模型/导数，先量化 A 时间成本及与固定 ReSplat
+  黑盒的兼容性。
