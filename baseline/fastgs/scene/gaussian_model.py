@@ -68,6 +68,8 @@ class GaussianModel:
         self.shoptimizer = None
         self.percent_dense = 0
         self.spatial_lr_scale = 0
+        self.preserve_unclamped_opacity_state = False
+        self.opacity_clamped_total = 0
         self.long_axis_split = False
         self.setup_functions()
 
@@ -340,6 +342,25 @@ class GaussianModel:
                 optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors
 
+    def clamp_opacity_preserve_optimizer_state(self, maximum=0.8):
+        """Clamp only over-limit opacity entries and reset only their Adam moments."""
+        mask = (self.get_opacity > maximum).squeeze(-1)
+        count = int(mask.sum().item())
+        if not count:
+            return 0
+        replacement = inverse_sigmoid(torch.full_like(self._opacity[mask], maximum))
+        with torch.no_grad():
+            self._opacity[mask] = replacement
+        for group in self.optimizer.param_groups:
+            if group["name"] != "opacity":
+                continue
+            state = self.optimizer.state.get(group["params"][0])
+            if state is not None:
+                state["exp_avg"][mask] = 0
+                state["exp_avg_sq"][mask] = 0
+            break
+        return count
+
     def _prune_optimizer(self, mask):
         optimizable_tensors = {}
         optimizers = [self.optimizer]
@@ -524,9 +545,12 @@ class GaussianModel:
             final_prune = torch.logical_and(prune_mask, selected_pts_mask)
             self.prune_points(final_prune)
         
-        opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.8))
-        optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
-        self._opacity = optimizable_tensors["opacity"]
+        if self.preserve_unclamped_opacity_state:
+            self.opacity_clamped_total += self.clamp_opacity_preserve_optimizer_state(0.8)
+        else:
+            opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.8))
+            optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
+            self._opacity = optimizable_tensors["opacity"]
         tmp_radii = self.tmp_radii
         self.tmp_radii = None
 

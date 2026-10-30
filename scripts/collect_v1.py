@@ -13,7 +13,7 @@ TARGET = ROOT / "md/main_table_v1.md"
 SCENES = json.loads((ROOT / "baseline/scenes.json").read_text())
 START = "<!-- V1_RESULTS_START -->"
 END = "<!-- V1_RESULTS_END -->"
-BACKENDS = ("terminal_guard", "topology_freeze")
+BACKENDS = ("terminal_guard", "topology_freeze", "opacity_state")
 
 
 def read(path):
@@ -63,6 +63,12 @@ def main():
             path = root / group / scene
             if not (path / "report.json").exists():
                 continue
+            historical_split = read(RESULTS / "baseline_A_no_reset7000_B" / group / scene /
+                                    "work/split.json")
+            current_split = read(path / "work/split.json")
+            for key in ("train", "test", "context", "resolution"):
+                assert current_split[key] == historical_split[key], (
+                    "split or context differs from control", group, scene, key)
             candidate = collect(path)
             baseline = collect(RESULTS / "baseline_A_baseline_B" / group / scene)
             reference = read(RESULTS / "baseline_A_baseline_B" / group / scene /
@@ -78,8 +84,12 @@ def main():
                           "位置学习率日程和关闭周期性opacity重置设置，仅跳过第7000步增密/剪枝事件。",
                           "参数跨三场景相同。", ""])
         else:
-            lines.extend(["B 代码为 `baseline/utils_B/topology_freeze.py`：沿用 `no_reset7000` 的7000步日程，",
-                          "仅将密集化截止改为5600步，随后1400步优化已有高斯。参数跨三场景相同。", ""])
+            if backend == "topology_freeze":
+                lines.extend(["B 代码为 `baseline/utils_B/topology_freeze.py`：沿用 `no_reset7000` 的7000步日程，",
+                              "仅将密集化截止改为5600步，随后1400步优化已有高斯。参数跨三场景相同。", ""])
+            else:
+                lines.extend(["B 代码为 `baseline/utils_B/opacity_state.py`：保持7000步、密集化、0.8 opacity限幅",
+                              "和关闭周期性重置不变；只为未触发限幅的高斯保留opacity Adam动量。参数跨三场景相同。", ""])
         lines.extend(["| **group** | **scene** | **PSNR (Δ)** | **SSIM (Δ)** | **LPIPS (Δ)** | **A(s) (Δ)** | **ReSplat(s) (Δ)** | **B(s) (Δ)** | **总耗时(s) (Δ)** | **经典30k参考** |",
                       "|---|---|---:|---:|---:|---:|---:|---:|---:|---|"])
         for group, scene, new, old, ref, path in rows:

@@ -103,6 +103,7 @@ def training(dataset, opt, pipe, args):
 
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
     gaussians.long_axis_split = args.long_axis_split
+    gaussians.preserve_unclamped_opacity_state = args.preserve_unclamped_opacity_state
 
     # output dir + config dump (mirrors classic prepare_output_and_logger)
     os.makedirs(dataset.model_path, exist_ok=True)
@@ -288,6 +289,8 @@ def training(dataset, opt, pipe, args):
         "iterations": int(opt.iterations),
         "skip_final_opacity_reset": bool(args.skip_final_opacity_reset),
         "disable_opacity_reset": bool(args.disable_opacity_reset),
+        "preserve_unclamped_opacity_state": bool(args.preserve_unclamped_opacity_state),
+        "opacity_clamped_total": gaussians.opacity_clamped_total,
         "skip_final_densification": bool(args.skip_final_densification),
         "densify_until_iter": int(opt.densify_until_iter),
         "seed": 0,
@@ -336,6 +339,8 @@ if __name__ == "__main__":
                         help="skip all scheduled opacity resets during short training")
     parser.add_argument("--skip_final_densification", action="store_true",
                         help="do not change Gaussian topology on the final training iteration")
+    parser.add_argument("--preserve_unclamped_opacity_state", action="store_true",
+                        help="during 0.8 clamp, keep Adam moments for opacity entries below the limit")
     parser.add_argument("--final_prune_fastgs", action="store_true",
                         help="apply FastGS multiview final prune before saving")
     parser.add_argument("--topk_growth", action="store_true",

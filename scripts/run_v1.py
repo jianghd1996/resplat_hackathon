@@ -50,7 +50,7 @@ def job(group, info, backend, gpu, commit):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--backend", choices=("terminal_guard", "topology_freeze"), required=True)
+    ap.add_argument("--backend", choices=("terminal_guard", "topology_freeze", "opacity_state"), required=True)
     ap.add_argument("--groups", nargs="+", choices=tuple(SCENES), default=list(SCENES))
     ap.add_argument("--gpus", nargs="+", type=int, choices=(0, 1), default=[0, 1])
     args = ap.parse_args()
