@@ -1,8 +1,10 @@
 # run artifacts
+datasets/
+pretrained/
 baseline/work/
 baseline/results/
 baseline/.deps/
-resplat/pretrained/
+resplat/pretrained
 resplat/outputs/
 resplat/results/
 

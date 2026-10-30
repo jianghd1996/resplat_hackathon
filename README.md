@@ -40,10 +40,11 @@ bash run_train.sh    # 一键端到端训练
 bash run_eval.sh     # 一键评测 + 汇总
 ```
 
-环境、权重与数据集的下载说明见 `baseline/README.md`。
+环境说明见 `baseline/README.md`。资源下载与远端单 Conda 环境的运行脚本见
+`scripts/README.md`。
 
 注意：
-- ReSplat 权重（`resplat-base-dl3dv-540x960-view16-a72dc6d0.pth`）需从主办方链接
-  下载后放入 `resplat/pretrained/`（本仓库不含大文件）
-- 数据集（`datasets/examples/{DL3DV,hw,mipnerf360}`）需从主办方链接下载后放到
-  `baseline/../datasets/examples/`（与 `baseline/`、`resplat/` 平级）
+- ReSplat 权重（`resplat-base-dl3dv-540x960-view16-a72dc6d0.pth`）可用
+  `bash scripts/assets/download.sh weight` 下载到 `pretrained/` 并接通 `resplat/pretrained/`
+- 数据集需按 `baseline/scenes.json` 放到 `datasets/{DL3DV,hw,mipnerf360}/`；
+  数据目录与 `baseline/`、`resplat/` 平级

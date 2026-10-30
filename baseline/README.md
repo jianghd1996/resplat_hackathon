@@ -39,7 +39,7 @@ results/summary.{json,md}        # 汇总表
   `run_resplat.py --checkpoint` 指定路径）
 - **fastgs 环境**（模块 B / 渲染）：torch 2.4 + `bash setup.sh` 编译
   `baseline/3dgs/submodules`（diff-gaussian-rasterization / simple-knn / fused-ssim）
-- **数据集**：选手从主办方链接下载后放入 `../datasets/examples/<group>/<scene>/`
+- **数据集**：选手从主办方链接下载后按 `scenes.json` 放入 `../datasets/{DL3DV,hw,mipnerf360}/<scene>/`
   （`scenes.json` 配置每组使用的场景）
 
 ## 流水线设计（baseline 的具体选择）
