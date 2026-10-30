@@ -28,7 +28,7 @@ from compare_context_selections import angular_matrix, rotation_angle_matrix  # 
 from visualize_context_coverage import read_images  # noqa: E402
 
 
-GROUP_DIRS = {"dl3dv": "DL3DV", "mipnerf360": "mipnerf360"}
+GROUP_DIRS = {"dl3dv": "DL3DV", "hw": "hw", "mipnerf360": "mipnerf360"}
 
 
 def read_json(path):
