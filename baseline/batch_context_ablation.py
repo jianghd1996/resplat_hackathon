@@ -403,8 +403,9 @@ def main():
                         default=["dl3dv", "mipnerf360"])
     parser.add_argument("--strategies", nargs="+", choices=sorted(STRATEGIES),
                         default=[
-                            "uniform16", "random16", "pose_fps", "orbit_fps",
-                            "oracle_test_nearest", "oracle_test_nearest_pairs",
+                            "uniform16", "random16", "center_fps_zero",
+                            "pose_fps", "orbit_fps", "oracle_test_nearest",
+                            "oracle_test_nearest_pairs",
                         ])
     parser.add_argument("--scenes", nargs="*",
                         help="optional scene names or group/name selectors")

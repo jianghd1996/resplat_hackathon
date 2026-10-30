@@ -4,6 +4,7 @@ Each strategy exposes select(train_indices, count), returning positions in the
 ordered training-view list. Pose loading and image normalization stay shared.
 """
 
+from .center_fps_zero import select as select_center_fps_zero
 from .oracle_test_nearest import select as select_oracle_test_nearest
 from .oracle_test_nearest_pairs import select as select_oracle_test_nearest_pairs
 from .orbit_fps import select as select_orbit_fps
@@ -12,6 +13,7 @@ from .random16 import select as select_random16
 from .uniform16 import select as select_uniform16
 
 STRATEGIES = {
+    "center_fps_zero": select_center_fps_zero,
     "oracle_test_nearest": select_oracle_test_nearest,
     "oracle_test_nearest_pairs": select_oracle_test_nearest_pairs,
     "orbit_fps": select_orbit_fps,
