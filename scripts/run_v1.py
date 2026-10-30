@@ -55,6 +55,7 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--repeat", required=True, help="Unique identifier, e.g. r0 or r1")
     ap.add_argument("--groups", nargs="+", choices=tuple(SCENES), default=list(SCENES))
+    ap.add_argument("--gpus", nargs="+", type=int, choices=(0, 1), default=[0, 1])
     args = ap.parse_args()
     if not args.repeat.isalnum():
         ap.error("--repeat must be alphanumeric")
@@ -81,8 +82,10 @@ def main():
             finally:
                 pending.task_done()
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(gpu_worker, gpu) for gpu in (0, 1)]
+    if len(set(args.gpus)) != len(args.gpus):
+        ap.error("GPU IDs must be unique")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(args.gpus)) as pool:
+        futures = [pool.submit(gpu_worker, gpu) for gpu in args.gpus]
         for future in concurrent.futures.as_completed(futures):
             future.result()
 
