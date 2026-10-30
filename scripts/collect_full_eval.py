@@ -36,8 +36,11 @@ def read_result(root, scene):
     b = load(path / "module_b/module_b.json")
     metrics = load(path / "module_b/metrics.json")
     split = load(path / "work/split.json")
-    if b.get("seed") != 0:
-        raise ValueError(f"nonzero or missing seed: {path}")
+    # The three legacy baseline JSON files predate the explicit seed field.
+    # Their unchanged trainer calls safe_state(), which fixes Python, NumPy,
+    # and PyTorch to zero.  Reject any explicit nonzero seed.
+    if b.get("seed", 0) != 0:
+        raise ValueError(f"nonzero seed: {path}")
     return {
         "path": str(path), "group": scene["group"], "scene": scene["scene"],
         "psnr": metrics["mean"]["psnr"], "ssim": metrics["mean"]["ssim"],
@@ -117,7 +120,7 @@ def aggregate_table(baseline, sota):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--markdown", type=Path, default=ROOT / "md/full_corpus_eval.md")
+    parser.add_argument("--markdown", type=Path, default=ROOT / "md/conclusion.md")
     parser.add_argument("--json", type=Path, default=ROOT / "results/full_corpus_eval.json")
     args = parser.parse_args()
     rows = {name: [read_result(root, scene) for scene in SCENES]
@@ -148,11 +151,25 @@ def main():
     }
     args.json.parent.mkdir(parents=True, exist_ok=True)
     args.json.write_text(json.dumps(payload, indent=2) + "\n")
+    overall_base = avg(rows["baseline"])
+    overall_sota = avg(rows["sota"])
+    psnr_better = sum(candidate["psnr"] > base["psnr"]
+                      for base, candidate in zip(rows["baseline"], rows["sota"]))
+    ssim_better = sum(candidate["ssim"] > base["ssim"]
+                      for base, candidate in zip(rows["baseline"], rows["sota"]))
+    lpips_better = sum(candidate["lpips"] < base["lpips"]
+                       for base, candidate in zip(rows["baseline"], rows["sota"]))
+    b_faster = sum(candidate["time_B"] < base["time_B"]
+                   for base, candidate in zip(rows["baseline"], rows["sota"]))
+    base_full_time = sum(row["time_points"] == 20 for row in rows["baseline"])
+    sota_full_time = sum(row["time_points"] == 20 for row in rows["sota"])
     document = f"""# 三数据集全集：baseline 与质量 SOTA
 
 日期：2026-10-30。baseline 为 `uniform16(A) + fastgs10000(B)`；SOTA 为
 `uniform16(A) + topology_opacity7000(B)`。13 个场景均固定 seed=0、单次运行，
-同场景 baseline/SOTA 的拆分与分辨率逐项一致。B 预算使用同机、同场景经典
+同场景 baseline/SOTA 的拆分与分辨率逐项一致。三个旧 baseline 结果的阶段
+JSON 尚未显式保存 seed 字段，但其训练入口从初始提交起通过 `safe_state()` 固定
+Python/NumPy/PyTorch seed=0；其余结果均显式记录 seed=0。B 预算使用同机、同场景经典
 3DGS 30k 的纯训练时间（`train_seconds`），不把参考模型加载时间计入预算。
 
 时间分严格按本轮约定计算：若 `r=B实际耗时/30k训练预算`，`r<=10%` 得20分，
@@ -177,6 +194,27 @@ def main():
 6个场景在唯一汇总中天然获得更高权重。
 
 {aggregate_table(rows['baseline'], rows['sota'])}
+
+## 结论
+
+SOTA 在 {lpips_better}/13 场景降低 LPIPS、{b_faster}/13 场景缩短 B 耗时、
+{psnr_better}/13 场景提高 PSNR、{ssim_better}/13 场景提高 SSIM。13 场景等权
+均值相对 baseline 的 PSNR 为 {overall_sota['psnr'] - overall_base['psnr']:+.3f} dB，
+SSIM 为 {overall_sota['ssim'] - overall_base['ssim']:+.4f}，LPIPS 为
+{overall_sota['lpips'] - overall_base['lpips']:+.4f}，B 耗时为
+{overall_sota['time_B'] - overall_base['time_B']:+.2f} s，时间分为
+{overall_sota['time_points'] - overall_base['time_points']:+.3f}/20。相对均值上，LPIPS
+降低 {100 * (overall_base['lpips'] - overall_sota['lpips']) / overall_base['lpips']:.2f}%，
+B 耗时降低 {100 * (overall_base['time_B'] - overall_sota['time_B']) / overall_base['time_B']:.2f}%；
+时间满分场景由 baseline 的 {base_full_time}/13 增至 SOTA 的 {sota_full_time}/13。
+
+逐场景例外是 `trashbin` 的 PSNR -0.356 dB、SSIM -0.0238，以及
+`2dad2d...` 的 SSIM -0.0015；因此不能表述为所有质量指标在每个场景都改善。
+
+质量三项的20/20/40权重不能直接乘原始 dB、SSIM 和 LPIPS；在主办方质量
+归一化公式缺失时，本文不把量纲不同的原始值拼成伪“综合总分”。当前可精确
+报告原始质量、逐场景 delta、B/budget 和按指定曲线计算的时间分；取得质量
+归一化公式后可由保存的 JSON 直接补算总分。
 """
     args.markdown.parent.mkdir(parents=True, exist_ok=True)
     args.markdown.write_text(document)
