@@ -162,6 +162,26 @@ def main():
                           f'{ref["total_seconds"]}s / {ref["test_psnr_quick"]}']
                 lines.append("| " + " | ".join(fields) + " |")
             lines.extend(["", "源数据与校验口径同上；三场景参数统一，选择器不读取测试图像或测试指标。", ""])
+            if len(rows) == 3:
+                lines.extend([
+                    "配对解释以 `main_table.md` 的 `uniform16(A)+no_reset7000(B)` 为控制：",
+                    "billboard 的 PSNR/LPIPS 变化为 +0.030/+0.0007，counter 为 -0.015/-0.0002；",
+                    "两个真正换帧的场景没有呈现方向一致且超过工程筛选量级的质量改善。",
+                    "DL3DV 因缺少训练轨迹而选择了与uniform完全相同的16帧，其本次差异只反映管线运行漂移，",
+                    "不能归因于A策略。结论是轨迹并集代理虽在离线探针中稳定提高，但尚未转化为留出质量；",
+                    "停止将固定A1直接扩成condition-guided A2，除非后续可靠性探针找到新的内容/遮挡证据。", ""])
+    if all((RESULTS / f"baseline_A_{name}7000_B").is_dir()
+           for name in ("topology_freeze", "topology_opacity")):
+        lines.extend([
+            "## v1 当前配置选择", "",
+            "| 路线 | 统一配置 | 三场景等权均值 PSNR / SSIM / LPIPS | B时间与10%档 | 结论 |",
+            "|---|---|---:|---|---|",
+            "| 质量优先 | `uniform16 + topology_opacity7000` | 28.509 / 0.8884 / 0.1507 | "
+            "DL3DV 9.38%、HW 5.34%、counter 10.56% | 当前质量最佳；counter略超10%档 |",
+            "| 质量×速度 | `uniform16 + topology_freeze7000` | 28.397 / 0.8874 / 0.1562 | "
+            "DL3DV 8.07%、HW 4.68%、counter 9.42% | 三场景均留在10%档，当前综合首选 |", "",
+            "百分比以该场景B时间除以经典3DGS 30000步纯训练时间计算；",
+            "等权均值只用于配置摘要，正式判断仍以逐场景表为主。", ""])
     if not completed:
         lines.append("正式单次实验尚未完成；早期重复运行只用于诊断，未入主表。")
     text = TARGET.read_text()
