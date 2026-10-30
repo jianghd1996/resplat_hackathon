@@ -187,13 +187,13 @@ def draw_frustum(axis, pose, camera, scale, color="#d62728", alpha=0.85):
     axis.plot(*loop.T, color=color, alpha=alpha, linewidth=0.8)
 
 
-def make_contact_sheet(work, context_names, output):
+def make_contact_sheet(work, image_names, output, title_prefix="view"):
     columns = 4
-    rows = math.ceil(len(context_names) / columns)
+    rows = math.ceil(len(image_names) / columns)
     cell_w, cell_h = 320, 260
     canvas = Image.new("RGB", (columns * cell_w, rows * cell_h), "white")
     draw = ImageDraw.Draw(canvas)
-    for index, name in enumerate(context_names):
+    for index, name in enumerate(image_names):
         path = work / "images" / name
         if not path.is_file():
             raise FileNotFoundError(f"Context image missing: {path}")
@@ -204,17 +204,21 @@ def make_contact_sheet(work, context_names, output):
         px = x + (cell_w - thumb.width) // 2
         py = y + 8
         canvas.paste(thumb, (px, py))
-        label = f"{index:02d}  {name}"
+        label = f"{title_prefix} {index:02d}  {name}"
         draw.text((x + 8, y + cell_h - 25), label, fill="black")
     canvas.save(output)
 
 
 def make_figure(points, counts, poses, context_names, camera, center, basis,
-                azimuth, elevation, gaps, output, plot_points):
+                azimuth, elevation, gaps, test_names, output, plot_points):
     context_set = set(context_names)
+    test_set = set(test_names)
     centers = np.stack([pose["center"] for pose in poses])
     context_poses = [pose for pose in poses if pose["name"] in context_set]
     context_centers = np.stack([pose["center"] for pose in context_poses])
+    test_poses = [pose for pose in poses if pose["name"] in test_set]
+    test_centers = (np.stack([pose["center"] for pose in test_poses])
+                    if test_poses else np.empty((0, 3)))
     pca_points = (points - center) @ basis
     pca_centers = (centers - center) @ basis
 
@@ -232,6 +236,10 @@ def make_figure(points, counts, poses, context_names, camera, center, basis,
     axis3d.scatter(centers[:, 0], centers[:, 1], centers[:, 2], c="0.65", s=9, label="all views")
     axis3d.scatter(context_centers[:, 0], context_centers[:, 1], context_centers[:, 2],
                    c="#d62728", marker="^", s=48, label="16 context views")
+    if len(test_centers):
+        axis3d.scatter(test_centers[:, 0], test_centers[:, 1], test_centers[:, 2],
+                       c="#1f77b4", marker="x", s=42, linewidths=1.2,
+                       label="test views")
     extent = np.percentile(np.linalg.norm(points - center, axis=1), 90)
     frustum_scale = max(float(extent) * 0.12, 1e-5)
     for pose in context_poses:
@@ -250,10 +258,17 @@ def make_figure(points, counts, poses, context_names, camera, center, basis,
                 s=1.0, alpha=0.45, rasterized=True)
     top.scatter(pca_centers[:, 0], pca_centers[:, 1], c="0.65", s=14)
     context_mask = np.array([pose["name"] in context_set for pose in poses])
+    test_mask = np.array([pose["name"] in test_set for pose in poses])
     top.scatter(pca_centers[context_mask, 0], pca_centers[context_mask, 1],
                 c="#d62728", marker="^", s=55)
+    if test_mask.any():
+        top.scatter(pca_centers[test_mask, 0], pca_centers[test_mask, 1],
+                    c="#1f77b4", marker="x", s=48, linewidths=1.2,
+                    label="test views")
     for index, xy in enumerate(pca_centers[context_mask, :2]):
         top.annotate(str(index), xy, xytext=(3, 3), textcoords="offset points", fontsize=7)
+    if test_mask.any():
+        top.legend(loc="best")
     top.set_aspect("equal", adjustable="datalim")
     top.set_title("PCA-aligned top view")
     top.set_xlabel("principal axis 1")
@@ -266,6 +281,10 @@ def make_figure(points, counts, poses, context_names, camera, center, basis,
     sphere.scatter(azimuth[context_mask], elevation[context_mask], c="#20c55a",
                    edgecolors="black", linewidths=0.6, marker="^", s=85,
                    label="context")
+    if test_mask.any():
+        sphere.scatter(azimuth[test_mask], elevation[test_mask], c="#27a8e0",
+                       linewidths=1.5, marker="x", s=80,
+                       label="test")
     for index, (az, el) in enumerate(zip(azimuth[context_mask], elevation[context_mask])):
         sphere.annotate(str(index), (az, el), xytext=(4, 4), textcoords="offset points", fontsize=7)
     sphere.set_xlim(-180, 180)
@@ -359,10 +378,14 @@ def main():
 
     figure_path = output / "context_coverage.png"
     contact_path = output / "context_views.png"
+    test_contact_path = output / "test_views.png"
     report_path = output / "context_coverage.json"
+    test_names = list(split.get("test", []))
     make_figure(points, counts, poses, context_names, camera, center, basis,
-                azimuth, elevation, gaps, figure_path, args.plot_points)
-    make_contact_sheet(work, context_names, contact_path)
+                azimuth, elevation, gaps, test_names, figure_path, args.plot_points)
+    make_contact_sheet(work, context_names, contact_path, "context")
+    if test_names:
+        make_contact_sheet(work, test_names, test_contact_path, "test")
 
     context_set = set(context_names)
     test_set = set(split.get("test", []))
@@ -401,7 +424,11 @@ def main():
             ])) if any(name in test_set for name in ordered_names) else None,
             "per_view": {name: float(gap) for name, gap in zip(ordered_names, gaps)},
         },
-        "outputs": {"figure": str(figure_path), "contact_sheet": str(contact_path)},
+        "outputs": {
+            "figure": str(figure_path),
+            "context_contact_sheet": str(contact_path),
+            "test_contact_sheet": str(test_contact_path) if test_names else None,
+        },
     }
     report_path.write_text(json.dumps(report, indent=2))
 
@@ -412,6 +439,8 @@ def main():
     print(f"[coverage] camera angular gap mean/max: {gaps.mean():.2f} / {gaps.max():.2f} deg")
     print(f"[coverage] figure: {figure_path}")
     print(f"[coverage] context images: {contact_path}")
+    if test_names:
+        print(f"[coverage] test images: {test_contact_path}")
     print(f"[coverage] report: {report_path}")
 
 
