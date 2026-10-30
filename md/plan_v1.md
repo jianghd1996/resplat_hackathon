@@ -1,0 +1,138 @@
+# plan_v1：用覆盖互补与收敛连续性驱动下一轮
+
+2026-10-30。分析对象：`8aab3e0`及其本机v0结果。本文是**实验计划**，并未执行下表中的新A/B完整训练。
+依据：[机制复盘](rethink_v0.md)、[维度草案与指标修订](plan_v1_draft.md)、[可复跑探针](../probe/README.md)。
+结果记录继续遵守 [agent_workflow](agent_workflow.md)，完整训练结果追加 [main_table](main_table.md)。
+
+## 1. 目标、控制组与判据
+
+固定ReSplat代码、权重和16视图输入；只迭代A/B。场景间统一参数，不按场景挑预算或手工选帧。
+主质量控制为 `uniform16 + no_reset7000`；速度参照为 `uniform16 + no_reset5000`；原10000步baseline永久保留。
+所有新结果报告相对原baseline和当前配对控制的两组Δ，避免一个候选“比旧基线好”却比现有最佳退步。
+
+| 层次 | 执行规则 |
+|---|---|
+| 有效性 | 标准PLY、同一留出划分/渲染分辨率/指标实现；不改变测试相机去迎合输出；新B使用同一输入PLY哈希 |
+| 硬时间条件 | 依仓库工作流，B严格低于同机同场景 `30000×T_iter`；另报端到端与经典管线相同口径时间，不混用纯训练和总时间 |
+| 时间档 | B≤10%为仓库记录的满分档；跨10%不等于违反100%硬预算。候选有质量提升时仍记录Pareto取舍，不臆造档外分数 |
+| 质量路线 | 优先LPIPS，兼看PSNR/SSIM。暂定相对当前控制每场景PSNR不低于−.2 dB、SSIM不低于−.002、LPIPS不高于+.001；至少两主场景LPIPS出现可重复改善，才提升为通用质量候选 |
+| 速度路线 | 同一质量护栏下，B或端到端至少缩短5%才列为优先速度候选；收益小于重复波动时只保留观察，不称为提速 |
+| 小效应处理 | P0报告同seed重复和跨seed波动；改善须超过对应重复差量级，效果接近噪声时不继续扩大组合。3个seed不够证明总体统计显著性，保留全部单次数据 |
+| 汇总 | 逐场景指标与Δ为主，三场景等权均值为辅；LPIPS相对改善先逐场景计算再平均；另报逐视图恶化数/中位数/最差视图 |
+
+以上质量/5%门槛是**本轮工程筛选阈值，不是官方规则**。可保留超出护栏但有明确Pareto价值的探索结果，需单列权衡，不冒充通用提升。
+仓库仅记录20/20/40/20权重，没有完整官方归一化和时间评分曲线；不能线性加权原始dB、SSIM、LPIPS和秒数生成“官方综合分”。
+counter当前距10%边界仅1.567秒，优先关注稳定余量；若质量改善且仍在同档，不能因更小B没有额外时间分便忽略端到端价值。
+
+## 2. 全集探针如何改变优先级
+
+- 本地13场景全部纳入几何/图像统计；已有完整训练仅3场景。local在13/13场景平均相机距离变差、7/7有轨迹场景覆盖下降，因此停止该成对选帧家族的盲扫。
+- 训练轨迹约束的两交换探针在7/7场景改善并集和支持p10，counter覆盖37.34%→41.22%、bicycle32.82%→37.42%。这是A的优先验证方向，但优化目标本身改善不等于质量泛化。
+- no_reset仍在每次密集化清空opacity动量；7000步末次拓扑变化后没有优化更新。这是两个低成本、可分别反证的B方向。
+- 三个输入PLY最短轴全部在1e-6下限，long-axis缩短无位移补偿的切向轴。分裂方案先做算子守恒/渲染探针，不直接进入全量训练。
+- 感知网络初始化改变剪枝RNG，固定分辨率切换改变相机抽样栈。先消除混杂，才讨论loss或多尺度本身。
+
+## 3. GitHub实现对照与可迁移边界
+
+检索/阅读日期2026-10-30。下列为官方仓库固定提交；版本用于追溯，不要求升级本机依赖。
+外部论文/仓库的成绩不填写为本项目成绩。建议只迁移可隔离的机制，先满足现有渲染器与标准PLY契约。
+
+| 维度 | 已读实现 | 可借鉴之处 | 本项目适配与优先级 |
+|---|---|---|---|
+| A / 共视统计、视角 | [hloc pairs_from_covisibility][hloc] `c13273b` | 用实际共享point3D观测构造共视关系 | 借观测结构，不照搬“共视最多的pair”作为16帧选择。当前counter缺points3D.bin，可从images.bin训练观测反向索引；P1 |
+| A / 图像质量代理 | [OpenCV Laplacian][opencv] `9d40b84` | 二阶空间差分实现，说明它测边缘变化而非直接测模糊标签 | 用同图合成模糊/局部邻域验证代理，不引入额外图像网络；P2探针 |
+| A/B / RNG与实验统计 | [PyTorch fork_rng][rng] `9933f27` | 保存并恢复CPU/设备RNG状态 | 隔离可选网络初始化，分离训练相机/剪枝/分裂随机源；不要求新版PyTorch；P0 |
+| B / 调度、opacity状态、评分 | [FastGS模型][fastgs-model] 与 [评分函数][fastgs-score] `44e02a5` | 当前.8限幅/清空动量上游也存在，多视图评分单独消耗前向渲染 | 针对ReSplat初始化验证是否仍必要；先profile和状态连续性，不把继承行为误称本地bug；P0/P1 |
+| B / 拓扑停止与恢复 | [3DGS训练循环][3dgs] `54c035f`、[gsplat策略][gsplat-default] `512d366` | 拓扑更新有明确截止点；gsplat支持重置后的暂停 | 将恢复期作为独立参数，保持总预算；不机械照搬长训练的比例；P1 |
+| B / 剪枝与预算 | [LightGaussian prune_finetune][light] `6676b98` | 删除后仍训练恢复，而非只在保存前删点 | 借恢复机制；其重要性实现有渲染器依赖，不能把原版预算直接接入当前ReSplat点数；P2 |
+| B / 分辨率与生长 | [DashGaussian train_dash][dash] `4e3b560` | 分辨率调度与增密率、点数调度联动 | 本地半→全仅改尺度并非对该方法的复现；先测单位/梯度，避免多因素同时移植；P2 |
+| B / 梯度统计、split | [gsplat策略][gsplat-default] 与 [ops][gsplat-ops] | 显式按width/height/相机数换算屏幕梯度，参数和优化器状态随拓扑更新 | 先确认当前FastGS梯度定义，不能再盲乘分辨率；借鉴状态操作和归一化的检查方式；P1微探针/P2训练 |
+| B / 抗混叠与尺度 | [Mip-Splatting模型][mip] `dda02ab` | 尺度过滤与opacity补偿是配套关系 | 涉及渲染语义；先验证导出与标准渲染一致性，不只加一个scale正则；P2探针/P3迁移 |
+| B / 感知loss | [PerceptualSimilarity][lpips] `082bb24` | 归一化图像、特征距离和感知网络实现 | 对齐评估输入约定，隔离初始化RNG，保长宽比patch，测梯度贡献和新增成本；P2 |
+| B / 位姿、曝光 | [gsplat simple_trainer][gsplat-trainer] `512d366` | 提供相机优化等训练接入参考 | 当前FastGS不能直接对相机求导。先测实际位姿/曝光失配，再做新后端梯度和世界系一致性验证；P3 |
+| B / 内核和吞吐 | [Faster Gaussian Splatting][faster] `d23bb78` | 独立速度实现和消融组织方式 | 与本机FastGS并非同一后端；先列兼容性与正确性成本，不同时改算法与内核；P3 |
+
+A的I/O优化以本仓库现有解码/resize实现为基准，不需要为了引用外部方案更换算法；外部存储/图像库的吞吐数字也不能代替本机冷运行profile。
+共视图方案主要服务A，gsplat/Dash的梯度统计主要服务B；不能把后者依赖已训练场景的统计当成A的免费输入。
+
+## 4. 待测模块队列
+
+文件建议均相对`baseline/`，`probe/`文件则相对仓库根；**未创建的文件是建议名称**。
+每项先实现独立开关/适配器，对照只改变该项；共用训练器可复用，但模块配置与输出标签要分开。
+
+| 优先级 | 待测模块 / 文件建议 | 实验与判据 |
+|---|---|---|
+| P0 | `probe/repro_profile.py`；训练器完整配置/阶段记录 | no_reset7000三主场景，同seed=0重复两次；后续晋级候选与控制配对seed0/1/2。记录PLY/划分/权重哈希、相机序列、Python/NumPy/CPU/CUDA RNG、所有训练参数。正式B墙钟边界同步；单独诊断运行用CUDA事件拆解render/backward/score/topology/optimizer。输出时间口径与波动，先确认无新计时偏差 |
+| P0 | `probe/topology_transition.py` | 同一父模型在增密前后记录训练视图render、alpha、损失、点数、尺度、opacity状态；特别检查7000末步。诊断开销不并入正式质量/速度行。只用训练视图判断候选，正式留出评估按冻结协议进行 |
+| P1-B1 | `utils_B/terminal_guard.py` | 7000步只跳过最后一次增密/剪枝事件（包含其.8限幅），其余更新次数与no_reset相同。看保存前渲染变化和最终三场景指标；若无明显瞬时/最终损失，不假定末次事件就是主因 |
+| P1-B2 | `utils_B/topology_freeze.py` | 独立对照no_reset7000，固定允许增密至5600步、5601–7000只优化现有高斯；保持7000步LR、无周期reset。记录减少的评分时间及恢复曲线。B1若有收益，额外与B1比较以区分末步保护和较长恢复段 |
+| P1-B3 | `utils_B/opacity_state.py` | 固定.8限幅与原增密序列，对未被限幅且拓扑映射中保留的opacity条目保留Adam一/二阶矩；实际限幅/新增条目按明确规则处理。先微测试状态映射，再与no_reset7000单项比较。不要同时取消.8限幅或改opacity阈值 |
+| P1-A1 | `utils_A/covisibility_guarded.py` | 复用已跑的两交换规则：uniform骨架、16分区/端点、max_swaps=2、平均距离≤1.1×U、p10支持不降、最大间隙≤2×U；只用训练轨迹，无轨迹自动uniform。三主场景A→固定ReSplat→no_reset7000，与uniform配对；验证最终质量及新增A时间，不能只看轨迹目标 |
+| P1-诊断 / P2-训练 | `probe/split_conservation.py` → `utils_B/surface_split.py` | 固定训练视图和父PLY，使用同一标准随机样本，量化现有split的均值/协方差/alpha覆盖/渲染跳变；针对薄片面内覆盖设计算子。未通过有限值、坐标、覆盖检查前不训练；不修改ReSplat本体 |
+| P2 | `probe/resolution_units.py` → `utils_B/scale_aware_resolution.py` | 同一PLY和视图在半/全分辨率比较普通/绝对梯度分位数、半径、候选率；隔离相机序列。只有单位证据支持才设统一转换，再测2800/4200日程。对照同时含原coarse_to_fine与no_reset，不把阈值拍脑袋翻倍 |
+| P2 | `utils_B/score_schedule.py` / `budget_growth_calibrated.py` | 仅若profile证明评分/生长是主要成本，先独立测评分/增密间隔100→200，记录恢复和收敛；若研究点数预算，先按候选类型归一化梯度并记录投影工作量。两种改动分开测试，不把它们捆成同一配置 |
+| P2 | `probe/loss_alignment.py` → `utils_B/perceptual_patch.py` | 先用fork_rng隔离网络构造，固定训练抽样；比较保长宽比patch的LPIPS与原L1/SSIM梯度范数/夹角及成本，再决定完整loss试验。尚无证据时不提高权重、不扩大网络 |
+| P2 | `probe/quality_calibration.py` / `probe/preprocess_profile.py` | 全集训练图像上做局部纹理/合成模糊校准，误删平滑图则停止；分解A解码/规整/写盘时间。缓存或并行输出须与原图像张量等价，冷/热时间分别报告，不将外移准备当加速 |
+| P3 | `utils_B/pose_refine.py`、`sparse_optimizer.py`、曝光/滤波后端 | 只有直接残差证据或profile支持才开始；先通过相机梯度/优化器状态/标准PLY与测试render一致性。当前是依赖门槛未满足，不记录为质量失败 |
+
+关于B2的5600：这是统一的20%恢复期假设，不是根据某个场景结果拟合的最优截止；若失败先分析曲线，
+不立刻扫描十个截止点。B3也可能保留不良动量，预期收益只是待证假设。
+
+关于A1接口：当前`select_context`只传中心、方向与图像路径，需要新增可选的训练轨迹数据入口，
+在共用预处理器读取源模型的真实观测，再传给选择器；不要从规整后的空观测COLMAP文本获取轨迹。
+保持旧策略参数兼容，返回排序且唯一的训练序列位置。DL3DV回退由“缺少可用轨迹”触发，不能写死数据集名来调参。
+若轨迹和图像名无法匹配，必须显式记录回退原因；训练与测试集合不得混入选择候选。
+
+## 5. 第一组 checklist：先获得可解释的单项结果
+
+`[x]`只表示本轮确实完成的证据工作；`[ ]`为后续执行项。以下顺序不是要求同时启动全部实验。
+
+- [x] 全集数据清点：13场景3009图像，位姿、训练划分、路径/FOV、图像代理、三种选帧几何与7场景轨迹覆盖。
+- [x] 三主场景固定点样本与混合参考点云诊断，记录视锥不考虑遮挡的限制。
+- [x] 已有44个完整评估条目核查；逐视图差值、相同输入哈希、PLY尺度/opacity与DL3DV残差分解。
+- [x] CPU微探针复现opacity无值变化仍丢动量、LPIPS初始化改变剪枝RNG；解析核查末步增密/分裂缩放。
+- [x] 全集受约束两交换探针：7场景实际交换，6场景按缺轨迹回退；不声称新PSNR/LPIPS结果。
+- [ ] P0：增加完整运行配置、独立RNG/相机序列和计时口径；先验证插桩关闭时不改变基线计算路径。
+- [ ] P0：三主场景no_reset7000同seed重复，记录质量/时间差量级；诊断运行捕获末次拓扑前后训练渲染与状态。
+- [ ] P1-B1：三主场景terminal_guard，与新的同口径控制比较；报告瞬时变化能否解释最终变化。
+- [ ] P1-B2：三主场景topology_freeze5600/7000，与no_reset及必要的B1比较，判断恢复段是否真正贡献质量/时间。
+- [ ] P1-B3：先测保留/限幅/新增/删除条目的Adam映射，再做三主场景opacity_state独立实验。
+- [ ] P1-A1：接入可选训练轨迹接口，重现7场景探针context与6场景回退；完整运行三主场景A1+no_reset7000。
+- [ ] 晋级复核：有明确收益的单项与控制配对seed0/1/2；记录均值、范围、逐视图退化分布。小效应不能仅凭一次最好结果晋级。
+- [ ] 组合：最多先组合最佳A与一个通过判据的B；B1/B2/B3之间只有单项效应清楚才加第二因素，并保留所有单项对照。
+- [ ] 几何压力验证：固定配置增加DL3DV `0b5635d53b3b…`、HW `trashbin`、Mip `bicycle`；补必要经典30k参考，禁止根据新场景逐个调参。
+- [ ] 最终场景级验证：参数冻结后运行其余7个本地场景；先分别汇总三个数据集，再宏平均，避免DL3DV场景数较多主导结论。
+
+P2/P3不自动排队运行。P1失败时，先根据已记录的轨迹和残差回答原因，再决定是否激活对应P2；
+不为了“完成清单”补跑已经没有证据支持的组合。
+
+## 6. 保存、收集和停止规则
+
+探针代码保存在仓库`probe/`，输出放`results/rethink_v0/`（本轮）或`results/probe_v1/`（后续）。
+完整实验继续使用 `results/<A名>_A_<B标签>_B/<group>/<scene>/`，B标签包含步数、seed与重复号，
+例如 `baseline_A_terminal_guard7000_seed0r1_B`；标签不是额外算法开关。禁止覆盖已有seed0历史结果。
+只跑B复用A/PLY时明确标记，缺失A/ReSplat时间填“—”；正式端到端行必须来自同一次完整管线，不能拼接时间。
+
+每个候选保存实际生效参数、Git提交/dirty标记、环境与权重校验和、split/context/输入PLY哈希、原始训练指标、
+点数及状态轨迹、标准PLY/PNG、`module_b.json`、`metrics.json`。高频诊断文件额外标注instrumented，不参与正式时间排名。
+现有`collect_results.py`继续收集单次结果；新增重复汇总器时保存每次运行的来源路径，不能只留均值或只取最快一次。
+
+主表新小节列：设计与单因素、固定参数、三主场景指标/Δ、A/ReSplat/B/总秒数、B/30k、重复范围、
+逐视图退化摘要、通过/停止原因；全集扩展另表，不能用缺失场景凑平均。原始results不提交Git。
+若质量收益不超过噪声且时间更差，停止；若代理改善但质量不变，记录“代理未转化”而不继续盲增目标权重；
+若只有一数据集获益，作为条件假设保留，不按场景定制参数冒充通用方案。
+
+[hloc]: https://github.com/cvg/Hierarchical-Localization/blob/c13273bd0ecc2917a35910fd843712a1c6243193/hloc/pairs_from_covisibility.py
+[opencv]: https://github.com/opencv/opencv/blob/9d40b841070eb9f2b7fe2935dea44f184672d224/modules/imgproc/src/deriv.cpp
+[rng]: https://github.com/pytorch/pytorch/blob/9933f275f857870234004d951579fa40fd55c403/torch/random.py
+[fastgs-model]: https://github.com/fastgs/FastGS/blob/44e02a5c1d5e9ed64d2ecd4af1cbba14ac92150f/scene/gaussian_model.py
+[fastgs-score]: https://github.com/fastgs/FastGS/blob/44e02a5c1d5e9ed64d2ecd4af1cbba14ac92150f/utils/fast_utils.py
+[3dgs]: https://github.com/graphdeco-inria/gaussian-splatting/blob/54c035f7834b564019656c3e3fcc3646292f727d/train.py
+[gsplat-default]: https://github.com/nerfstudio-project/gsplat/blob/512d366b67073d77ca099ede742683c165dfc23b/gsplat/strategy/default.py
+[gsplat-ops]: https://github.com/nerfstudio-project/gsplat/blob/512d366b67073d77ca099ede742683c165dfc23b/gsplat/strategy/ops.py
+[light]: https://github.com/VITA-Group/LightGaussian/blob/6676b983e77baadd909effc56a6aaadafa964dcc/prune_finetune.py
+[dash]: https://github.com/YouyuChen0207/DashGaussian/blob/4e3b5606e593b5e58b90a5c3ea8c421bedc308a1/train_dash.py
+[mip]: https://github.com/autonomousvision/mip-splatting/blob/dda02ab5ecf45d6edb8c540d9bb65c7e451345a9/scene/gaussian_model.py
+[lpips]: https://github.com/richzhang/PerceptualSimilarity/blob/082bb24f84c091ea94de2867d34c4544f68e0963/lpips/lpips.py
+[gsplat-trainer]: https://github.com/nerfstudio-project/gsplat/blob/512d366b67073d77ca099ede742683c165dfc23b/examples/simple_trainer.py
+[faster]: https://github.com/nerficg-project/faster-gaussian-splatting/blob/d23bb784d8f19b2432d847b80418d56f0494f599/README.md
