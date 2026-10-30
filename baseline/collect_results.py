@@ -23,19 +23,24 @@ def collect(scene_dir, group, scene):
     b = read(scene_dir / "module_b/module_b.json")
     metric = read(scene_dir / "module_b/metrics.json")
     reference = read(scene_dir / "reference_3dgs/module_b.json")
-    mean = report.get("metrics") or metric.get("mean") or report
+    mean = metric.get("mean") or report.get("metrics") or report
     times = {
-        "A": report.get("time_A", report.get("A_seconds", a.get("total_seconds"))),
-        "ReSplat": report.get("time_resplat", report.get("resplat_seconds", r.get("total_seconds"))),
-        "B": report.get("time_B", report.get("B_seconds", b.get("total_seconds"))),
+        "A": a.get("total_seconds", report.get("time_A", report.get("A_seconds"))),
+        "ReSplat": r.get("total_seconds", report.get("time_resplat", report.get("resplat_seconds"))),
+        "B": b.get("total_seconds", report.get("time_B", report.get("B_seconds"))),
     }
-    total = report.get("time_total", report.get("total_seconds"))
-    if total is None and all(isinstance(x, (int, float)) for x in times.values()):
+    stage_complete = all(isinstance(stage.get("total_seconds"), (int, float))
+                         for stage in (a, r, b))
+    if stage_complete:
         total = round(sum(times.values()), 3)
+    else:
+        total = report.get("time_total", report.get("total_seconds"))
+        if total is None and all(isinstance(x, (int, float)) for x in times.values()):
+            total = round(sum(times.values()), 3)
     return {
         "group": group, "scene": scene,
-        "pose_source": report.get("pose_source", a.get("pose_source")),
-        "test_views": report.get("num_test_views", report.get("evaluated_views", metric.get("num_views"))),
+        "pose_source": a.get("pose_source", report.get("pose_source")),
+        "test_views": metric.get("num_views", report.get("num_test_views", report.get("evaluated_views"))),
         "psnr": mean.get("psnr"), "ssim": mean.get("ssim"),
         "lpips": mean.get("lpips"), "A_seconds": times["A"],
         "resplat_seconds": times["ReSplat"], "B_seconds": times["B"],

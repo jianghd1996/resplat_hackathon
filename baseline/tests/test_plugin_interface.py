@@ -44,6 +44,21 @@ class PluginInterfaceTest(unittest.TestCase):
             self.assertEqual(row["test_views"], 8)
             self.assertEqual(row["total_seconds"], 243.4)
 
+            # A new official run in the same directory must win over the
+            # archived report, which may describe an older checkpoint.
+            (scene / "module_b").mkdir()
+            (scene / "module_b/metrics.json").write_text(json.dumps({
+                "num_views": 9, "mean": {"psnr": 23.0, "ssim": 0.8, "lpips": 0.15}}))
+            (scene / "work").mkdir()
+            (scene / "work/module_a.json").write_text('{"total_seconds": 5}')
+            (scene / "resplat").mkdir()
+            (scene / "resplat/resplat.json").write_text('{"total_seconds": 6}')
+            (scene / "module_b/module_b.json").write_text('{"total_seconds": 7}')
+            refreshed = collect(scene, "hw", "billboard")
+            self.assertEqual(refreshed["psnr"], 23.0)
+            self.assertEqual(refreshed["test_views"], 9)
+            self.assertEqual(refreshed["total_seconds"], 18)
+
     def test_single_scene_entry_writes_standard_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
