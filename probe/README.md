@@ -7,12 +7,14 @@
 全集指本机 `datasets/{DL3DV,hw,mipnerf360}` 的全部 13 个场景，不指公开数据集的全部场景。
 历史质量结果仅覆盖三个主场景；其余场景只汇报探针统计。
 原始结果保存在被 Git 忽略的 `results/rethink_v0/`，文档保存经核对的摘要。
+v1新增算子探针写入同样被忽略的 `results/probe_v1/`。
 
 在仓库根目录运行；本机已有环境和 VGG 权重缓存：
 
 ```bash
 conda run -n resplat python probe/dataset_census.py
 conda run -n resplat python probe/covisibility_swaps.py
+conda run -n resplat python probe/split_conservation.py
 conda run -n resplat python probe/condition_audit.py
 conda run -n resplat python probe/context_geometry.py
 conda run -n fastgs python probe/result_forensics.py
@@ -24,11 +26,14 @@ conda run -n resplat python probe/plot_geometry.py --out md/assets/rethink_v0_co
 `result_forensics.py` 需要本机保留的 v0 实验 PLY、划分、PNG 和 JSON。
 `training_mechanics.py` 使用实际 FastGS 类和 LPIPS 初始化，CPU 上验证状态变化；
 首次没有感知网络缓存时可能触发模型下载。它恢复随机状态仅用于本进程中的对照。
+`split_conservation.py` 默认读取三主场景已有的 `baseline_A_no_reset7000_B` ReSplat输入PLY；
+默认2048父点、65²网格，使用局部seed=0，不消耗训练随机状态。
 
 | 脚本 / 输出同名 JSON | 回答的问题 | 边界 |
 |---|---|---|
 | `dataset_census.py` | 全部 13 场景的位姿路径、距离、朝向、FOV、图像代理分布及三种 A 的轨迹覆盖 | 不做 SfM，不读测试图像计算质量代理；DL3DV 无轨迹，不当作覆盖为零 |
 | `covisibility_swaps.py` | 保留均匀骨架、至多两次受约束交换，能否提高训练轨迹支持 | 7 场景有轨迹，6 场景回退；离线代理提升不是 PSNR/LPIPS 提升 |
+| `split_conservation.py` | 三主场景ReSplat输入上比较当前split、long-axis与表面守恒两子点算子的质心、二阶矩和切平面alpha代理 | 固定局部RNG；正交切平面只是算子探针，不包含投影、遮挡或留出质量 |
 | `condition_audit.py` | FOV、角度/空间缺口、训练支持能否描述不同的选择需求 | 仅描述全集输入条件与已有代理增益，不拟合阈值，不生成自适应策略质量成绩 |
 | `context_geometry.py` | 三主场景的高斯中心视锥覆盖、多重覆盖、冗余与相机距离 | 固定 20k 点、seed=0；不考虑遮挡；混合点云只是参考点集敏感性检查 |
 | `result_forensics.py` | 已有逐视图退化是否集中、对照输入是否相同、初始/最终尺度和透明度、残差空间分布 | 不产生新训练结果；PNG 残差受保存量化影响 |
