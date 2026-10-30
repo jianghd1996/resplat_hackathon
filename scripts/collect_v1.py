@@ -142,6 +142,13 @@ def main():
                           "最终高斯数减少2080/4838/3018（0.83%/1.36%/0.92%），B用时减少",
                           "0.78/0.23/2.74秒。因此收益不依赖增加模型规模；三场景方向一致但HW效应很小，",
                           "适合与已验证的topology_freeze恢复段做一次正交组合，而不继续扫描split参数。", ""])
+        if backend == "surface_topology" and len(rows) == 3:
+            lines.extend(["相对 `topology_freeze7000` 单项，三场景 PSNR 分别变化",
+                          "+0.060/+0.001/+0.061 dB，LPIPS分别变化 +0.0003/-0.0005/-0.0006；",
+                          "LPIPS逐视图恶化数为24/42、2/8、8/30。最终高斯数减少2344/4068/1913，",
+                          "B用时变化 -1.77/+3.08/-3.62秒；B/经典30k纯训练时间为",
+                          "7.83%/4.94%/8.90%。等权平均略优且仍在10%档，但增量接近运行漂移、",
+                          "DL3DV的LPIPS反向，因此保留为综合候选，停止继续叠加opacity或扫描split参数。", ""])
     a_root = RESULTS / "covisibility_guarded_A_no_reset7000_B"
     if a_root.is_dir():
         rows = []
@@ -188,15 +195,15 @@ def main():
                     "不能归因于A策略。结论是轨迹并集代理虽在离线探针中稳定提高，但尚未转化为留出质量；",
                     "停止将固定A1直接扩成condition-guided A2，除非后续可靠性探针找到新的内容/遮挡证据。", ""])
     if all((RESULTS / f"baseline_A_{name}7000_B").is_dir()
-           for name in ("topology_freeze", "topology_opacity")):
+           for name in ("surface_topology", "topology_opacity")):
         lines.extend([
             "## v1 当前配置选择", "",
             "| 路线 | 统一配置 | 三场景等权均值 PSNR / SSIM / LPIPS | B时间与10%档 | 结论 |",
             "|---|---|---:|---|---|",
             "| 质量优先 | `uniform16 + topology_opacity7000` | 28.509 / 0.8884 / 0.1507 | "
             "DL3DV 9.38%、HW 5.34%、counter 10.56% | 当前质量最佳；counter略超10%档 |",
-            "| 质量×速度 | `uniform16 + topology_freeze7000` | 28.397 / 0.8874 / 0.1562 | "
-            "DL3DV 8.07%、HW 4.68%、counter 9.42% | 三场景均留在10%档，当前综合首选 |", "",
+            "| 质量×速度 | `uniform16 + surface_topology7000` | 28.438 / 0.8880 / 0.1560 | "
+            "DL3DV 7.83%、HW 4.94%、counter 8.90% | 三场景均在10%档；相对topology_freeze仅小幅改善 |", "",
             "百分比以该场景B时间除以经典3DGS 30000步纯训练时间计算；",
             "等权均值只用于配置摘要，正式判断仍以逐场景表为主。", ""])
     if not completed:
