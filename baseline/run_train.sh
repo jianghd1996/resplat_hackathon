@@ -47,6 +47,8 @@ B_LABEL=$MODULE_B
 [ "$MODULE_B" = "no_reset" ] && B_LABEL="no_reset${ITERATIONS}"
 [ "$MODULE_B" = "topk_growth" ] && B_LABEL="topk_growth${ITERATIONS}"
 [ "$MODULE_B" = "coarse_to_fine" ] && B_LABEL="coarse_to_fine${ITERATIONS}"
+[ "$MODULE_B" = "long_axis_split" ] && B_LABEL="long_axis_split${ITERATIONS}"
+[ "$MODULE_B" = "perceptual_loss" ] && B_LABEL="perceptual_loss${ITERATIONS}"
 EXPERIMENT="${A_LABEL}_A_${B_LABEL}_B"
 RESULTS="$COMP/results/$EXPERIMENT"
 WEIGHT_NAME=resplat-base-dl3dv-540x960-view16-a72dc6d0.pth

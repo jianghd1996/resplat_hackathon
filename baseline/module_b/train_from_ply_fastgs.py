@@ -26,6 +26,7 @@ from random import randint
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 
 BASELINE_ROOT = Path(__file__).resolve().parent.parent
@@ -100,6 +101,7 @@ def training(dataset, opt, pipe, args):
     t_total0 = time.time()
 
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
+    gaussians.long_axis_split = args.long_axis_split
 
     # output dir + config dump (mirrors classic prepare_output_and_logger)
     os.makedirs(dataset.model_path, exist_ok=True)
@@ -135,6 +137,13 @@ def training(dataset, opt, pipe, args):
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+    perceptual = None
+    perceptual_calls = 0
+    if args.perceptual_loss:
+        from lpipsPyTorch.modules.lpips import LPIPS
+        perceptual = LPIPS(net_type="vgg").cuda().eval()
+        for parameter in perceptual.parameters():
+            parameter.requires_grad_(False)
 
     coarse_until = round(opt.iterations * 0.4) if args.coarse_to_fine else 0
     active_scale = 2.0 if args.coarse_to_fine else 1.0
@@ -177,6 +186,14 @@ def training(dataset, opt, pipe, args):
         else:
             ssim_value = 1.0
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
+        if perceptual is not None and iteration % 16 == 0:
+            pred_small = F.interpolate(image.unsqueeze(0), size=(256, 256),
+                                       mode="bilinear", align_corners=False).clamp(0, 1)
+            gt_small = F.interpolate(gt_image.unsqueeze(0), size=(256, 256),
+                                     mode="bilinear", align_corners=False)
+            loss = loss + 0.1 * perceptual(pred_small * 2 - 1,
+                                           gt_small * 2 - 1).mean()
+            perceptual_calls += 1
         loss.backward()
 
         with torch.no_grad():
@@ -275,6 +292,11 @@ def training(dataset, opt, pipe, args):
         "growth_selected_total": growth_selected_total if args.topk_growth else None,
         "peak_gaussians": peak_gaussians if args.topk_growth else None,
         "coarse_to_fine": bool(args.coarse_to_fine),
+        "long_axis_split": bool(args.long_axis_split),
+        "perceptual_loss": bool(args.perceptual_loss),
+        "perceptual_interval": 16 if args.perceptual_loss else None,
+        "perceptual_weight": 0.1 if args.perceptual_loss else None,
+        "perceptual_calls": perceptual_calls if args.perceptual_loss else None,
         "coarse_until_iteration": coarse_until if args.coarse_to_fine else None,
         "coarse_seconds": round(coarse_seconds, 2) if coarse_seconds is not None else None,
         "fine_seconds": round(train_s - coarse_seconds, 2) if coarse_seconds is not None else None,
@@ -311,6 +333,10 @@ if __name__ == "__main__":
                         help="limit densification to highest-gradient eligible sites under input point count")
     parser.add_argument("--coarse_to_fine", action="store_true",
                         help="train first 40 percent of steps at half image width and height")
+    parser.add_argument("--long_axis_split", action="store_true",
+                        help="sample FastGS split children along the longest local scale axis")
+    parser.add_argument("--perceptual_loss", action="store_true",
+                        help="add frozen VGG LPIPS on one training view every 16 steps")
     args = parser.parse_args()
     args.save_iterations = [args.iterations]
     args.test_iterations = []

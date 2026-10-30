@@ -2,6 +2,7 @@
 baseline/work/
 baseline/results/
 results/
+tmp/
 baseline/.deps/
 resplat/pretrained/
 resplat/outputs/

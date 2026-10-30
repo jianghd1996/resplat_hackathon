@@ -68,6 +68,7 @@ class GaussianModel:
         self.shoptimizer = None
         self.percent_dense = 0
         self.spatial_lr_scale = 0
+        self.long_axis_split = False
         self.setup_functions()
 
     def capture(self, optimizer_type):
@@ -437,7 +438,13 @@ class GaussianModel:
 
         stds = self.get_scaling[selected_pts_mask].repeat(N,1)
         means =torch.zeros((stds.size(0), 3),device="cuda")
-        samples = torch.normal(mean=means, std=stds)
+        if self.long_axis_split:
+            axis = stds.argmax(dim=1, keepdim=True)
+            samples = torch.zeros_like(stds)
+            samples.scatter_(1, axis, torch.randn_like(axis, dtype=stds.dtype) *
+                             stds.gather(1, axis))
+        else:
+            samples = torch.normal(mean=means, std=stds)
         rots = build_rotation(self._rotation[selected_pts_mask]).repeat(N,1,1)
         new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
         new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
