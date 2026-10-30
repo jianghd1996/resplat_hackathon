@@ -5,6 +5,7 @@ set -eo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 COMP="$(cd "$HERE/.." && pwd)"
 ITERATIONS=${REF_ITERATIONS:-30000}
+BUDGET_ITERATIONS=${ITERATIONS:-10000}
 MODULE_A=uniform16
 MODULE_B=fastgs
 SCENE_GROUPS=()
@@ -28,6 +29,7 @@ A_LABEL=$MODULE_A
 B_LABEL=$MODULE_B
 [ "$MODULE_A" = "uniform16" ] && A_LABEL=baseline
 [ "$MODULE_B" = "fastgs" ] && B_LABEL=baseline
+[ "$MODULE_B" = "short_budget" ] && B_LABEL="short_budget${BUDGET_ITERATIONS}"
 RESULTS="$COMP/results/${A_LABEL}_A_${B_LABEL}_B"
 
 # shellcheck disable=SC1091

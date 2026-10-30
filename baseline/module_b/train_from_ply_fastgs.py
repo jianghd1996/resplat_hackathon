@@ -168,8 +168,9 @@ def training(dataset, opt, pipe, args):
                         extent=scene.cameras_extent, radii=radii, args=opt,
                         importance_score=importance_score,
                         pruning_score=pruning_score)
-                if iteration % opt.opacity_reset_interval == 0 or \
-                        (dataset.white_background and iteration == opt.densify_from_iter):
+                reset_due = (iteration % opt.opacity_reset_interval == 0 or
+                             (dataset.white_background and iteration == opt.densify_from_iter))
+                if reset_due and not (args.skip_final_opacity_reset and iteration == opt.iterations):
                     gaussians.reset_opacity()
 
             if iteration < opt.iterations:
@@ -200,6 +201,7 @@ def training(dataset, opt, pipe, args):
         "num_init_gaussians": int(n_init),
         "num_final_gaussians": int(gaussians.get_xyz.shape[0]),
         "iterations": int(opt.iterations),
+        "skip_final_opacity_reset": bool(args.skip_final_opacity_reset),
         "mult": opt.mult,
         "num_train_views": len(scene.getTrainCameras()),
         "num_test_views": len(scene.getTestCameras()),
@@ -223,6 +225,8 @@ if __name__ == "__main__":
     parser.add_argument("--init_random", action="store_true")
     parser.add_argument("--init_random_num", type=int, default=100_000)
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--skip_final_opacity_reset", action="store_true",
+                        help="avoid saving immediately after an opacity reset at the last step")
     args = parser.parse_args()
     args.save_iterations = [args.iterations]
     args.test_iterations = []
