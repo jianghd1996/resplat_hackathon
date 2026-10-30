@@ -7,9 +7,7 @@ Pose sources (first available wins, "skip if present"):
   1. sparse/0/{cameras,images}.{bin,txt}   -> use directly (e.g. mipnerf360)
   2. transforms.json (Blender/DL3DV style) -> convert to COLMAP (no estimation)
   3. frames_info.txt (B011/hw AR dump)     -> AR positions are geometrically
-     invalid (validated against an independent COLMAP reconstruction: rotations
-     match to 0.5 deg, positions fail every rigid-alignment test), so we RUN
-     COLMAP from scratch on the images instead.
+     invalid, so reconstruct the referenced images with PyCOLMAP and undistort.
   4. nothing                               -> run COLMAP from scratch.
 
 Outputs (<out_dir>):
@@ -35,6 +33,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -106,8 +105,15 @@ def load_colmap_poses(scene_dir):
         poses = {}
         for img in imgs.values():
             poses[img.name] = (qvec2rotmat(img.qvec), np.asarray(img.tvec, dtype=np.float64))
-        return {"model": "PINHOLE", "W": W, "H": H, "fx": fx, "fy": fy, "cx": cx, "cy": cy,
-                "poses": poses, "source": f"colmap.{ext}"}
+        result = {"model": "PINHOLE", "W": W, "H": H, "fx": fx, "fy": fy, "cx": cx, "cy": cy,
+                  "poses": poses, "source": f"colmap.{ext}"}
+        marker = os.path.join(sp, "pycolmap_undistorted.json")
+        if os.path.isfile(marker):
+            images_dir = os.path.join(scene_dir, "images_undistorted")
+            if not os.path.isdir(images_dir):
+                raise FileNotFoundError(f"PyCOLMAP undistorted images missing: {images_dir}")
+            result["images_dir"] = images_dir
+        return result
     return None
 
 
@@ -357,6 +363,86 @@ def run_colmap(image_paths, work_tmp):
             "images_dir": img_dir}
 
 
+def run_pycolmap(image_paths, work_tmp):
+    """Reconstruct HW images with the CLI recipe using PyCOLMAP 3.10 bindings."""
+    try:
+        import pycolmap
+    except ImportError as exc:
+        raise RuntimeError("HW reconstruction needs PyCOLMAP: pip install pycolmap==3.10.0") from exc
+
+    if not image_paths:
+        raise ValueError("No images selected for PyCOLMAP")
+    os.makedirs(work_tmp, exist_ok=True)
+    work_tmp = tempfile.mkdtemp(prefix="run_", dir=work_tmp)
+    img_dir = os.path.join(work_tmp, "input_images")
+    os.makedirs(img_dir, exist_ok=True)
+    for path in image_paths:
+        dst = os.path.join(img_dir, os.path.basename(path))
+        if not os.path.exists(dst):
+            os.symlink(os.path.abspath(path), dst)
+    db = os.path.join(work_tmp, "database.db")
+    models_dir = os.path.join(work_tmp, "sparse")
+    os.makedirs(models_dir, exist_ok=True)
+
+    def extract(device):
+        pycolmap.extract_features(
+            database_path=db, image_path=img_dir,
+            camera_mode=pycolmap.CameraMode.SINGLE, camera_model="OPENCV",
+            device=device)
+
+    try:
+        extract(pycolmap.Device.cuda)
+    except (RuntimeError, ValueError) as exc:
+        print(f"  [warn] PyCOLMAP GPU SIFT failed ({exc}); retrying CPU", flush=True)
+        for suffix in ("", "-shm", "-wal"):
+            path = db + suffix
+            if os.path.exists(path):
+                os.remove(path)
+        extract(pycolmap.Device.cpu)
+
+    if len(image_paths) <= 120:
+        pycolmap.match_exhaustive(database_path=db, device=pycolmap.Device.cpu)
+    else:
+        pairing = pycolmap.SequentialPairingOptions()
+        pairing.overlap = 10
+        pairing.quadratic_overlap = True
+        pycolmap.match_sequential(database_path=db, pairing_options=pairing,
+                                   device=pycolmap.Device.cpu)
+
+    models = pycolmap.incremental_mapping(database_path=db, image_path=img_dir,
+                                           output_path=models_dir)
+    if not models:
+        raise RuntimeError("PyCOLMAP mapper produced no model")
+    def registered_count(model):
+        images = model.images
+        return len(images() if callable(images) else images)
+    best_id, best = max(models.items(), key=lambda item: registered_count(item[1]))
+    model_dir = os.path.join(models_dir, str(best_id))
+    os.makedirs(model_dir, exist_ok=True)
+    best.write(model_dir)
+    print(f"  PyCOLMAP registered {registered_count(best)} images", flush=True)
+
+    undist_dir = os.path.join(work_tmp, "undist")
+    pycolmap.undistort_images(output_path=undist_dir, input_path=model_dir,
+                               image_path=img_dir)
+    model_dir = os.path.join(undist_dir, "sparse")
+    if os.path.isfile(os.path.join(model_dir, "0", "cameras.bin")):
+        model_dir = os.path.join(model_dir, "0")
+    undist_images = os.path.join(undist_dir, "images")
+    cams = read_intrinsics_binary(os.path.join(model_dir, "cameras.bin"))
+    imgs = read_extrinsics_binary(os.path.join(model_dir, "images.bin"))
+    cam = sorted(cams.values())[0]
+    if cam.model != "PINHOLE":
+        raise RuntimeError(f"Undistorted camera is {cam.model}, expected PINHOLE")
+    fx, fy, cx, cy = np.asarray(cam.params[:4], dtype=np.float64)
+    poses = {img.name: (qvec2rotmat(img.qvec), np.asarray(img.tvec, dtype=np.float64))
+             for img in imgs.values()}
+    return {"model": "PINHOLE", "W": cam.width, "H": cam.height,
+            "fx": fx, "fy": fy, "cx": cx, "cy": cy,
+            "poses": poses, "source": "pycolmap_run",
+            "images_dir": undist_images, "model_dir": model_dir}
+
+
 # ----------------------------------------------------------------------------
 # Work-dir writing
 # ----------------------------------------------------------------------------
@@ -374,8 +460,12 @@ def natural_image_list(scene_dir, pose_dict):
         candidates = {}
         roots = []
         if pose_dict.get("images_dir"):
-            # the pose source's own images (e.g. COLMAP undistorted output)
-            roots.append(pose_dict["images_dir"])
+            # A reconstructed model must use its paired undistorted images.
+            preferred = pose_dict["images_dir"]
+            missing = [n for n in names if not os.path.isfile(os.path.join(preferred, n))]
+            if missing:
+                raise FileNotFoundError(f"Missing undistorted images in {preferred}: {missing[:5]}")
+            return [(n, os.path.join(preferred, n)) for n in names]
         for root, _, _ in os.walk(scene_dir):
             roots.append(root)
         for root in roots:
@@ -508,7 +598,12 @@ def main():
     os.makedirs(args.out, exist_ok=True)
 
     # ---- pose acquisition -------------------------------------------------
-    pose_dict = load_colmap_poses(args.scene_dir)
+    fi = os.path.join(args.scene_dir, "frames_info.txt")
+    stale_conversion = (os.path.isfile(fi) and os.path.isfile(
+        os.path.join(args.scene_dir, "sparse/0/conversion_summary.json")))
+    if stale_conversion:
+        print("[A] ignoring sparse/0 direct frames_info conversion; rebuilding with PyCOLMAP")
+    pose_dict = None if stale_conversion else load_colmap_poses(args.scene_dir)
     if pose_dict is not None:
         print(f"[A] using existing COLMAP poses ({pose_dict['source']})")
     else:
@@ -517,7 +612,6 @@ def main():
             print("[A] using transforms.json poses (converted, no estimation)")
             pose_dict = tj
         else:
-            fi = os.path.join(args.scene_dir, "frames_info.txt")
             if args.use_frames_info:
                 pose_dict = load_frames_info(args.scene_dir)
                 if pose_dict is None:
@@ -531,7 +625,7 @@ def main():
                     "results are not comparable to the COLMAP baseline")
             else:
                 reason = ("frames_info.txt present but AR positions are geometrically "
-                          "invalid (see README); running COLMAP" if os.path.exists(fi)
+                          "invalid (see README); running PyCOLMAP" if os.path.exists(fi)
                           else "no poses found; running COLMAP")
                 print(f"[A] {reason}")
                 t0 = time.time()
@@ -553,7 +647,8 @@ def main():
                 else:
                     all_imgs = [path for _, path in natural_image_list(args.scene_dir, None)]
                 tmp = args.tmp_root or (args.out.rstrip("/") + "_colmap_tmp")
-                pose_dict = run_colmap(all_imgs, tmp)
+                pose_dict = (run_pycolmap(all_imgs, tmp) if os.path.exists(fi)
+                             else run_colmap(all_imgs, tmp))
                 pose_dict["colmap_seconds"] = time.time() - t0
                 print(f"[A] COLMAP done in {pose_dict['colmap_seconds']:.1f}s")
 
