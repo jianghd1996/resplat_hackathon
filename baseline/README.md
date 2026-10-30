@@ -33,7 +33,7 @@ results/summary.{json,md}        # 汇总表
 ## 环境
 
 - **resplat 环境**（模块 A / ReSplat / 评测指标）：按 `../resplat/README.md` 安装
-  （python 3.12, torch 2.7, gsplat 1.5.3, pointops），并安装官方权重：
+  （python 3.12, torch 2.7, gsplat 1.5.3, pointops, PyCOLMAP 3.10），并安装官方权重：
   `resplat/pretrained/resplat-base-dl3dv-540x960-view16-a72dc6d0.pth`
   （选手从主办方提供的链接下载，放入 `../resplat/pretrained/`，或用
   `run_resplat.py --checkpoint` 指定路径）
@@ -49,8 +49,13 @@ results/summary.{json,md}        # 汇总表
 1. **位姿获取（有则跳过，无则估计）**，按来源优先级：
    - `sparse/0/{cameras,images}.{bin,txt}`（mipnerf360）→ 直接使用
    - `transforms.json`（DL3DV）→ 转 COLMAP（OpenGL→OpenCV 轴翻转 + 内参缩放，不估计）
-   - `frames_info.txt`（hw 采集数据）→ **重新跑 COLMAP**（原因见下）
-   - 什么都没有 → 跑 COLMAP（feature_extractor + sequential_matcher + mapper）
+   - `frames_info.txt`（hw 采集数据）→ **用 PyCOLMAP 重新建图并去畸变**。
+     只用 `frames_info.txt` 中的时间戳筛选原始 JPG；不使用其位置值。
+     PyCOLMAP GPU SIFT 不可用时自动改用 CPU。已有 `sparse/0` 若带
+     `conversion_summary.json`（直接转换的旧位姿），模块 A 会忽略并重建。
+     已建好的去畸变模型可用 `images_undistorted/` 和
+     `sparse/0/pycolmap_undistorted.json` 配对保存；不能只替换相机文件。
+   - 什么都没有 → 仍使用 COLMAP CLI 估计位姿
 2. **分辨率**：长边 ≤ 960 且 H/W 为 64 的倍数（LANCZOS 缩放，内参逐轴缩放），
    全流程（ReSplat/B/评测）统一使用该分辨率；**竖屏输入长边上限压到 768**
    （参考 `benchmarks/gs_compare_20261020` 的策略：竖屏 ViT token 数约为
@@ -61,6 +66,12 @@ results/summary.{json,md}        # 汇总表
    该补丁对横屏输入行为不变）
 4. **划分**：llffhold=8（与经典 3DGS 一致，每 8 张留 1 张作测试）；
    16 个 context 视角从**训练集**中 `np.linspace` 均匀选出（不接触测试视角）
+
+已用 `frames_info_to_colmap.py` 直接转换过的 hw 场景，可以先用
+`python baseline/rebuild_hw_sparse.py --root datasets/hw --backup-dir /path/to/backup`
+预览。确认后加 `--apply`：脚本只处理带 `sparse/0/conversion_summary.json`
+标记的旧模型，从原始 JPG 重新建图，把旧 `sparse/` 归档到指定目录，并保存
+新的 `sparse/0/` 与配套的 `images_undistorted/`。`sparse_0/` 不会被改动。
 
 ### ReSplat 阶段（`run_resplat.py`，resplat 环境）
 
