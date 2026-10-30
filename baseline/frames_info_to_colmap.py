@@ -16,8 +16,9 @@ Output::
 Default pose convention (matching the existing experimental HW loader):
 
 * ``rotX rotY rotZ rotW`` is an OpenCV world-to-camera quaternion (xyzw).
-* ``posX posY posZ`` is the camera center in world coordinates.
-* Therefore COLMAP translation is ``t = -R @ C``.
+* ``posX posY posZ`` is the OpenCV world-to-camera translation.
+* Therefore it is written directly as COLMAP's ``TX TY TZ``.
+* The corresponding camera center is ``C = -R.T @ t``.
 * A zero principal point is interpreted as the image center.
 
 The script only converts metadata; it does not run feature extraction, matching,
@@ -49,7 +50,7 @@ class Frame:
     cy: float
     width: int
     height: int
-    center: np.ndarray
+    translation: np.ndarray
     quat_xyzw: np.ndarray
 
 
@@ -90,7 +91,7 @@ def read_frames_info(path: Path) -> list[Frame]:
                     cy=float(fields[5]),
                     width=int(float(fields[6])),
                     height=int(float(fields[7])),
-                    center=np.asarray(
+                    translation=np.asarray(
                         [float(value) for value in fields[8:11]], dtype=np.float64
                     ),
                     quat_xyzw=quat,
@@ -251,7 +252,7 @@ def convert(scene_dir: Path, overwrite: bool, zero_principal_is_center: bool) ->
 
         for image_id, (frame, image) in enumerate(matched, 1):
             rotation = quat_xyzw_to_rotation(frame.quat_xyzw)
-            translation = -(rotation @ frame.center)
+            translation = frame.translation
             quat_wxyz = rotation_to_quat_wxyz(rotation)
             camera_id = camera_ids[camera_key(frame, zero_principal_is_center)]
             values = [*quat_wxyz.tolist(), *translation.tolist()]
@@ -260,7 +261,7 @@ def convert(scene_dir: Path, overwrite: bool, zero_principal_is_center: bool) ->
                 + " ".join(f"{value:.12g}" for value in values)
                 + f" {camera_id} {image.name}\n\n"
             )
-            centers.append(frame.center)
+            centers.append(-(rotation.T @ translation))
 
     with (output_dir / "points3D.txt").open("w") as handle:
         handle.write("# 3D point list with one line of data per point:\n")
@@ -275,8 +276,9 @@ def convert(scene_dir: Path, overwrite: bool, zero_principal_is_center: bool) ->
         "output": str(output_dir),
         "pose_convention": {
             "rotation": "OpenCV world-to-camera quaternion in xyzw order",
-            "position": "camera center in world coordinates",
-            "colmap_translation": "t = -R @ camera_center",
+            "position": "OpenCV world-to-camera translation",
+            "colmap_translation": "t = [posX, posY, posZ]",
+            "derived_camera_center": "C = -R.T @ t",
         },
         "zero_principal_is_center": zero_principal_is_center,
         "num_frames_info": len(frames),
