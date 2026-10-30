@@ -9,11 +9,13 @@ from .fps import select as select_fps
 from .quality_filter import select as select_quality_filter
 from .coverage_local import select as select_coverage_local
 from .covisibility_guarded import select as select_covisibility_guarded
+from .condition_guided import select as select_condition_guided
 
 STRATEGIES = {"uniform16": select_uniform16, "fps": select_fps,
               "quality_filter": select_quality_filter,
               "coverage_local": select_coverage_local,
-              "covisibility_guarded": select_covisibility_guarded}
+              "covisibility_guarded": select_covisibility_guarded,
+              "condition_guided": select_condition_guided}
 
 
 def select_context(strategy, train_indices, count, centers=None, directions=None,

@@ -15,6 +15,7 @@ v1新增算子探针写入同样被忽略的 `results/probe_v1/`。
 conda run -n resplat python probe/dataset_census.py
 conda run -n resplat python probe/covisibility_swaps.py
 conda run -n resplat python probe/split_conservation.py
+conda run -n resplat python probe/condition_reliability.py
 conda run -n resplat python probe/condition_audit.py
 conda run -n resplat python probe/context_geometry.py
 conda run -n fastgs python probe/result_forensics.py
@@ -34,6 +35,7 @@ conda run -n resplat python probe/plot_geometry.py --out md/assets/rethink_v0_co
 | `dataset_census.py` | 全部 13 场景的位姿路径、距离、朝向、FOV、图像代理分布及三种 A 的轨迹覆盖 | 不做 SfM，不读测试图像计算质量代理；DL3DV 无轨迹，不当作覆盖为零 |
 | `covisibility_swaps.py` | 保留均匀骨架、至多两次受约束交换，能否提高训练轨迹支持 | 7 场景有轨迹，6 场景回退；离线代理提升不是 PSNR/LPIPS 提升 |
 | `split_conservation.py` | 三主场景ReSplat输入上比较当前split、long-axis与表面守恒两子点算子的质心、二阶矩和切平面alpha代理 | 固定局部RNG；正交切平面只是算子探针，不包含投影、遮挡或留出质量 |
+| `condition_reliability.py` | 全集训练轨迹固定拆分后，候选交换能否在留出训练轨迹上产生稳定且有量级的覆盖收益 | 五折只拆训练point3D ID；阈值是统一工程门槛，不读取测试图像或质量指标 |
 | `condition_audit.py` | FOV、角度/空间缺口、训练支持能否描述不同的选择需求 | 仅描述全集输入条件与已有代理增益，不拟合阈值，不生成自适应策略质量成绩 |
 | `context_geometry.py` | 三主场景的高斯中心视锥覆盖、多重覆盖、冗余与相机距离 | 固定 20k 点、seed=0；不考虑遮挡；混合点云只是参考点集敏感性检查 |
 | `result_forensics.py` | 已有逐视图退化是否集中、对照输入是否相同、初始/最终尺度和透明度、残差空间分布 | 不产生新训练结果；PNG 残差受保存量化影响 |

@@ -51,7 +51,8 @@ def job(group, info, module_a, backend, gpu, commit):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--module-a", choices=("uniform16", "covisibility_guarded"), default="uniform16")
+    ap.add_argument("--module-a", choices=("uniform16", "covisibility_guarded",
+                                           "condition_guided"), default="uniform16")
     ap.add_argument("--backend", choices=("no_reset", "terminal_guard", "topology_freeze",
                                          "opacity_state", "topology_opacity", "surface_split",
                                          "surface_topology"),
