@@ -18,12 +18,47 @@ COMP="$(cd "$HERE/.." && pwd)"
 NUM_CONTEXT=${NUM_CONTEXT:-16}
 ITERATIONS=${ITERATIONS:-10000}
 USE_FRAMES_INFO=${USE_FRAMES_INFO:-0}
+MODULE_A=uniform16
+MODULE_B=fastgs
+SCENE_GROUPS=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --module-a) MODULE_A="${2:?--module-a needs a value}"; shift 2 ;;
+    --module-b) MODULE_B="${2:?--module-b needs a value}"; shift 2 ;;
+    --) shift; SCENE_GROUPS+=("$@"); break ;;
+    -*) echo "Unknown option: $1" >&2; exit 2 ;;
+    *) SCENE_GROUPS+=("$1"); shift ;;
+  esac
+done
+if [[ ! "$MODULE_A" =~ ^[a-z][a-z0-9_]*$ ]] || \
+   [[ ! "$MODULE_B" =~ ^[a-z][a-z0-9_]*$ ]] || \
+   [ ! -f "$HERE/utils_A/$MODULE_A.py" ] || \
+   [ ! -f "$HERE/utils_B/$MODULE_B.py" ]; then
+  echo "Unsupported module selection: A=$MODULE_A B=$MODULE_B" >&2
+  exit 2
+fi
+A_LABEL=$MODULE_A
+B_LABEL=$MODULE_B
+[ "$MODULE_A" = "uniform16" ] && A_LABEL=baseline
+[ "$MODULE_B" = "fastgs" ] && B_LABEL=baseline
+EXPERIMENT="${A_LABEL}_A_${B_LABEL}_B"
+RESULTS="$COMP/results/$EXPERIMENT"
+WEIGHT_NAME=resplat-base-dl3dv-540x960-view16-a72dc6d0.pth
+if [ -z "${CHECKPOINT:-}" ]; then
+  CHECKPOINT="$COMP/resplat/pretrained/$WEIGHT_NAME"
+  if [ ! -f "$CHECKPOINT" ] && [ -f "$COMP/pretrained/$WEIGHT_NAME" ]; then
+    CHECKPOINT="$COMP/pretrained/$WEIGHT_NAME"
+  fi
+fi
+if [ ! -f "$CHECKPOINT" ]; then
+  echo "ReSplat checkpoint missing: $CHECKPOINT (set CHECKPOINT=/path/to/weight.pth)" >&2
+  exit 1
+fi
 
 # shellcheck disable=SC1091
 source "$HERE/conda_env.sh"
 activate_env "$RESPLAT_ENV"
 
-SCENE_GROUPS=("$@")
 if [ ${#SCENE_GROUPS[@]} -eq 0 ]; then
   SCENE_GROUPS=($(python -c "import json;print(' '.join(json.load(open('$HERE/scenes.json')).keys()))"))
 fi
@@ -33,8 +68,8 @@ for GRP in "${SCENE_GROUPS[@]}"; do
   SCENE=$(python -c "import json;print(json.load(open('$HERE/scenes.json'))['$GRP']['scene'])")
   SRC_REL=$(python -c "import json;print(json.load(open('$HERE/scenes.json'))['$GRP']['source'])")
   SCENE_DIR="$COMP/$SRC_REL/$SCENE"
-  WORK="$HERE/work/$GRP/$SCENE"
-  RES="$HERE/results/$GRP/$SCENE"
+  RES="$RESULTS/$GRP/$SCENE"
+  WORK="$RES/work"
 
   echo ""
   echo "==================================================================="
@@ -55,27 +90,23 @@ for GRP in "${SCENE_GROUPS[@]}"; do
       --scene_dir "$SCENE_DIR" \
       --group "$GRP" \
       --out "$WORK" \
+      --module-a "$MODULE_A" \
       --num_context "$NUM_CONTEXT" \
       "${MODULE_A_EXTRA_ARGS[@]}"
 
   export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
   python "$HERE/run_resplat.py" \
       --work "$WORK" \
-      --out "$RES/resplat"
+      --out "$RES/resplat" \
+      --checkpoint "$CHECKPOINT"
 
   # ---------------- Module B: FastGS ----------------
   activate_env "$FASTGS_ENV"
-  export PYTHONPATH="$HERE/fastgs:${PYTHONPATH:-}"
-  python "$HERE/module_b/train_from_ply_fastgs.py" \
-      -s "$WORK" \
-      -m "$RES/module_b" \
-      --eval \
-      -r 1 \
-      --sh_degree 3 \
+  python "$HERE/utils_B/$MODULE_B.py" train \
+      --work "$WORK" --out "$RES/module_b" \
       --iterations "$ITERATIONS" \
-      --init_ply "$RES/resplat/resplat_world.ply" \
-      --quiet
+      --init-ply "$RES/resplat/resplat_world.ply"
 done
 
 echo ""
-echo "Training finished. Run 'bash run_eval.sh' to compute metrics."
+echo "Training finished in $RESULTS. Run 'bash run_eval.sh' to compute metrics."

@@ -35,15 +35,15 @@
 
 ```bash
 cd baseline
-bash setup.sh        # 一次性：编译 3dgs CUDA 子模块（fastgs env）
+bash setup.sh        # 仅在缺少 CUDA 扩展的新机器上运行
 bash run_train.sh    # 一键端到端训练
 bash run_eval.sh     # 一键评测 + 汇总
 ```
 
-环境、权重与数据集的下载说明见 `baseline/README.md`。
+当前服务器的环境、三种数据格式、A/B 切换和单场景入口见 `README_ours.md`；
+依赖与算法细节见 `baseline/README.md`。
 
 注意：
 - ReSplat 权重（`resplat-base-dl3dv-540x960-view16-a72dc6d0.pth`）需从主办方链接
-  下载后放入 `resplat/pretrained/`（本仓库不含大文件）
-- 数据集（`datasets/examples/{DL3DV,hw,mipnerf360}`）需从主办方链接下载后放到
-  `baseline/../datasets/examples/`（与 `baseline/`、`resplat/` 平级）
+  下载后放入 `resplat/pretrained/` 或仓库根目录 `pretrained/`（本仓库不含大文件）
+- 数据集放在仓库根目录的 `datasets/{DL3DV,hw,mipnerf360}`；服务器已有这三组数据。

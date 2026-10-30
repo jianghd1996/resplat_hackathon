@@ -36,7 +36,8 @@ def main():
             sdir = os.path.join(gdir, scene)
             if not os.path.isdir(sdir):
                 continue
-            a = load_json(os.path.join(args.work, group, scene, "module_a.json")) or {}
+            a = (load_json(os.path.join(sdir, "work", "module_a.json")) or
+                 load_json(os.path.join(args.work, group, scene, "module_a.json")) or {})
             r = load_json(os.path.join(sdir, "resplat", "resplat.json")) or {}
             b = load_json(os.path.join(sdir, "module_b", "module_b.json")) or {}
             m = load_json(os.path.join(sdir, "module_b", "metrics.json")) or {}

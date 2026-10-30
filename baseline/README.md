@@ -2,7 +2,7 @@
 
 经典三段式基线：**模块 A**（位姿获取 + 均匀 16 视角选择）→ **ReSplat**（16 视角前馈重建）→
 **模块 B**（全训练视角 3DGS 接续训练 10000 步）。每阶段独立计时，最终输出
-PSNR / SSIM / LPIPS + 总耗时。`datasets/examples` 三组数据各跑一个场景，一键运行。
+PSNR / SSIM / LPIPS + 总耗时。仓库根目录 `datasets/` 三组数据各跑一个场景，一键运行。
 
 ## 一键运行
 
@@ -10,10 +10,10 @@ PSNR / SSIM / LPIPS + 总耗时。`datasets/examples` 三组数据各跑一个�
 # 0) 仅在缺少 CUDA 扩展的新机器上运行：bash setup.sh
 
 # 1) 一键端到端训练：A -> ReSplat -> B（三组数据各一个场景）
-bash run_train.sh              # 全部；或指定组：bash run_train.sh dl3dv hw
+bash run_train.sh --module-a uniform16 --module-b fastgs  # 全部；末尾可指定 dl3dv hw
 
 # 2) 一键评测：渲染测试视角 + PSNR/SSIM/LPIPS + 时间汇总表
-bash run_eval.sh               # 同上可指定组
+bash run_eval.sh --module-a uniform16 --module-b fastgs  # 同上可指定组
 
 # 可选）经典 3DGS 30k 从头训练参考（选手需要打败的时间线）
 bash run_reference.sh dl3dv
@@ -21,12 +21,12 @@ bash run_reference.sh dl3dv
 
 产物：
 ```
-work/<group>/<scene>/            # 模块 A 产物（COLMAP 格式场景 + split.json + module_a.json）
-results/<group>/<scene>/
+../results/baseline_A_baseline_B/<group>/<scene>/
+  work/                         # 模块 A 产物（COLMAP + split.json + module_a.json）
   resplat/                       # resplat_world.ply/.npz + resplat.json（计时）
   module_b/                      # 训练模型 + module_b.json（计时）+ metrics.json
   reference_3dgs/                # （可选）30k 参考
-results/summary.{json,md}        # 汇总表
+../results/baseline_A_baseline_B/summary.{json,md}  # 汇总表
 ```
 
 ## 环境
@@ -75,7 +75,7 @@ DL3DV 的 `001dccbc…5f`、hw 的 `billboard`、mipnerf360 的 `counter`。
   环境，请用绝对路径选择上面的环境。
 - 本机的模型权重位于仓库根目录 `pretrained/`；`run_resplat.py` 默认查找
   `resplat/pretrained/`。直接调用时传 `--checkpoint` 指向根目录中的权重；
-  使用 `run_train.sh` 前需让默认路径能找到该文件。
+  `run_train.sh` 会自动在两处查找，也可设置 `CHECKPOINT`。
 - hw 的默认位姿重建使用 PyCOLMAP，不需要 `colmap` CLI；输入为
   `frames_info.txt` 对应的原始 JPG，并执行特征提取、匹配、建图和去畸变。
   无位姿且没有 `frames_info.txt` 的其他数据，仍走 COLMAP CLI 分支。
@@ -84,8 +84,6 @@ DL3DV 的 `001dccbc…5f`、hw 的 `billboard`、mipnerf360 的 `counter`。
 
 ```bash
 cd /mnt/DataPart/jianghongda/wangyanbin_resplat/resplat_hackathon
-# 当前服务器的权重在根目录 pretrained/；让默认路径指向它
-test -e resplat/pretrained || test -L resplat/pretrained || ln -s ../pretrained resplat/pretrained
 cd baseline
 RESPLAT_ENV=/mnt/DataPart/jianghongda/env/resplat \
 FASTGS_ENV=/mnt/DataPart/jianghongda/env/resplat \

@@ -43,7 +43,9 @@ from PIL import Image
 # Reuse ReSplat's COLMAP readers / resolution rule (torch is imported at module
 # load in infer_colmap, so this script must run in the resplat environment).
 REPLAT_ROOT = Path(__file__).resolve().parent.parent.parent / "resplat"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(REPLAT_ROOT / "scripts"))
+from utils_A import STRATEGIES, select_context  # noqa: E402
 from infer_colmap import (  # noqa: E402
     compute_target_shape,
     read_extrinsics_binary,
@@ -503,7 +505,8 @@ def natural_image_list(scene_dir, pose_dict):
 
 
 
-def write_work_dir(out_dir, scene_dir, pose_dict, num_context, llffhold, max_resolution):
+def write_work_dir(out_dir, scene_dir, pose_dict, num_context, llffhold, max_resolution,
+                   module_a="uniform16"):
     os.makedirs(os.path.join(out_dir, "sparse/0"), exist_ok=True)
     img_out = os.path.join(out_dir, "images")
     os.makedirs(img_out, exist_ok=True)
@@ -561,11 +564,7 @@ def write_work_dir(out_dir, scene_dir, pose_dict, num_context, llffhold, max_res
     order = sorted(kept)
     test_idx = [i for i in range(len(order)) if i % llffhold == 0]
     train_idx = [i for i in range(len(order)) if i % llffhold != 0]
-    if num_context >= len(train_idx):
-        ctx = list(range(len(train_idx)))
-    else:
-        sel = np.linspace(0, len(train_idx) - 1, num_context, dtype=int)
-        ctx = sorted(set(int(i) for i in sel))
+    ctx = select_context(module_a, train_idx, num_context)
     split = {
         "images": order,
         "train": [order[i] for i in train_idx],
@@ -585,6 +584,7 @@ def main():
     ap.add_argument("--group", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--num_context", type=int, default=16)
+    ap.add_argument("--module-a", choices=sorted(STRATEGIES), default="uniform16")
     ap.add_argument("--llffhold", type=int, default=8)
     ap.add_argument("--max_resolution", type=int, default=960)
     ap.add_argument(
@@ -655,11 +655,12 @@ def main():
     # ---- work dir ----------------------------------------------------------
     split, resize_time = write_work_dir(
         args.out, args.scene_dir, pose_dict,
-        args.num_context, args.llffhold, args.max_resolution)
+        args.num_context, args.llffhold, args.max_resolution, args.module_a)
 
     elapsed = time.time() - t_start
     info = {
         "group": args.group,
+        "module_a": args.module_a,
         "scene_dir": os.path.abspath(args.scene_dir),
         "pose_source": pose_dict["source"],
         "experimental_frames_info": pose_dict["source"] == "frames_info.txt_raw",
