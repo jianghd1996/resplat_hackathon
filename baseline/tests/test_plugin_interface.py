@@ -103,9 +103,19 @@ class PluginInterfaceTest(unittest.TestCase):
             reference.write_text(json.dumps({"iterations": 30000,
                                              "train_seconds": 600.0,
                                              "total_seconds": 615.0}))
+            model = scene / "module_b/module_b.json"
+            model.parent.mkdir()
+            model.write_text('{"total_seconds": 59.0}')
             full = collect(scene, "hw", "billboard")
             self.assertEqual(full["reference_30k_B_budget_seconds"], 600.0)
             self.assertEqual(full["reference_30k_seconds"], 615.0)
+            self.assertAlmostEqual(full["B_fraction_of_reference_budget"], 59 / 600)
+
+            other = scene / "short_schedule_scene"
+            other.mkdir()
+            reused = collect(other, "hw", "billboard", scene)
+            self.assertEqual(reused["reference_30k_B_budget_seconds"], 600.0)
+            self.assertEqual(reused["reference_source"], "baseline_A_baseline_B")
 
     def test_single_scene_entry_writes_standard_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:

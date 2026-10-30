@@ -16,13 +16,19 @@ def read(path):
         return {}
 
 
-def collect(scene_dir, group, scene):
+def collect(scene_dir, group, scene, reference_dir=None):
     report = read(scene_dir / "report.json")
     a = read(scene_dir / "work/module_a.json")
     r = read(scene_dir / "resplat/resplat.json")
     b = read(scene_dir / "module_b/module_b.json")
     metric = read(scene_dir / "module_b/metrics.json")
-    reference = read(scene_dir / "reference_3dgs/module_b.json")
+    reference_path = scene_dir / "reference_3dgs/module_b.json"
+    reference = read(reference_path)
+    reference_source = "same_experiment" if reference else None
+    if not reference and reference_dir is not None:
+        reference_path = reference_dir / "reference_3dgs/module_b.json"
+        reference = read(reference_path)
+        reference_source = "baseline_A_baseline_B" if reference else None
     reference_iterations = reference.get("iterations")
     reference_train_seconds = reference.get("train_seconds")
     reference_iter_seconds = (reference_train_seconds / reference_iterations
@@ -37,6 +43,8 @@ def collect(scene_dir, group, scene):
     }
     stage_complete = all(isinstance(stage.get("total_seconds"), (int, float))
                          for stage in (a, r, b))
+    reference_budget = (30000 * reference_iter_seconds
+                        if reference_iter_seconds is not None else None)
     if stage_complete:
         total = round(sum(times.values()), 3)
     else:
@@ -56,8 +64,11 @@ def collect(scene_dir, group, scene):
         "reference_30k_psnr": (reference.get("test_psnr_quick")
                                if reference_iterations == 30000 else None),
         "reference_T_iter_seconds": reference_iter_seconds,
-        "reference_30k_B_budget_seconds": (30000 * reference_iter_seconds
-                                           if reference_iter_seconds is not None else None),
+        "reference_30k_B_budget_seconds": reference_budget,
+        "reference_source": reference_source,
+        "B_fraction_of_reference_budget": (times["B"] / reference_budget
+                                           if reference_budget and isinstance(times["B"], (int, float))
+                                           else None),
     }
 
 
@@ -80,7 +91,8 @@ def main():
     root = args.results_root / args.experiment
     if not root.is_dir():
         parser.error(f"experiment directory missing: {root}")
-    rows = [collect(scene, group.name, scene.name)
+    rows = [collect(scene, group.name, scene.name,
+                    args.results_root / "baseline_A_baseline_B" / group.name / scene.name)
             for group in sorted(root.iterdir()) if group.is_dir()
             for scene in sorted(group.iterdir()) if scene.is_dir()]
     if args.format in ("markdown", "both"):
