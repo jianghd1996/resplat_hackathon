@@ -43,6 +43,7 @@ B_LABEL=$MODULE_B
 [ "$MODULE_B" = "fastgs" ] && B_LABEL=baseline
 [ "$MODULE_B" = "short_budget" ] && B_LABEL="short_budget${ITERATIONS}"
 [ "$MODULE_B" = "short_schedule" ] && B_LABEL="short_schedule${ITERATIONS}"
+[ "$MODULE_B" = "regularized" ] && B_LABEL="regularized${ITERATIONS}"
 EXPERIMENT="${A_LABEL}_A_${B_LABEL}_B"
 RESULTS="$COMP/results/$EXPERIMENT"
 WEIGHT_NAME=resplat-base-dl3dv-540x960-view16-a72dc6d0.pth

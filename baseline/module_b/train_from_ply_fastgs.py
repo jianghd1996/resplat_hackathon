@@ -176,6 +176,15 @@ def training(dataset, opt, pipe, args):
             if iteration < opt.iterations:
                 gaussians.optimizer_step(iteration)
 
+    n_before_final_prune = int(gaussians.get_xyz.shape[0])
+    if args.final_prune_fastgs:
+        with torch.no_grad():
+            camlist = sampling_cameras(scene.getTrainCameras().copy())
+            _, pruning_score = compute_gaussian_score_fastgs(
+                camlist, gaussians, pipe, background, opt, DENSIFY=False)
+            gaussians.final_prune_fastgs(min_opacity=0.01,
+                                        pruning_score=pruning_score)
+
     train_s = time.time() - t_train0
 
     scene.save(opt.iterations)
@@ -200,6 +209,8 @@ def training(dataset, opt, pipe, args):
         "init_mode": init_mode,
         "num_init_gaussians": int(n_init),
         "num_final_gaussians": int(gaussians.get_xyz.shape[0]),
+        "num_before_final_prune": n_before_final_prune,
+        "final_prune_fastgs": bool(args.final_prune_fastgs),
         "iterations": int(opt.iterations),
         "skip_final_opacity_reset": bool(args.skip_final_opacity_reset),
         "mult": opt.mult,
@@ -227,6 +238,8 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--skip_final_opacity_reset", action="store_true",
                         help="avoid saving immediately after an opacity reset at the last step")
+    parser.add_argument("--final_prune_fastgs", action="store_true",
+                        help="apply FastGS multiview final prune before saving")
     args = parser.parse_args()
     args.save_iterations = [args.iterations]
     args.test_iterations = []

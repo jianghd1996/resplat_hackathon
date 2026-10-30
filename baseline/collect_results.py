@@ -16,6 +16,21 @@ def read(path):
         return {}
 
 
+DELTA_FIELDS = ("psnr", "ssim", "lpips", "A_seconds", "resplat_seconds",
+                "B_seconds", "total_seconds")
+
+
+def add_baseline_deltas(row, baseline_row):
+    """Attach experiment minus same-machine baseline values to a scene row."""
+    for key in DELTA_FIELDS:
+        value = row.get(key)
+        baseline = baseline_row.get(key)
+        row[f"delta_{key}"] = (value - baseline
+                               if isinstance(value, (int, float))
+                               and isinstance(baseline, (int, float)) else None)
+    return row
+
+
 def collect(scene_dir, group, scene, reference_dir=None):
     report = read(scene_dir / "report.json")
     a = read(scene_dir / "work/module_a.json")
@@ -80,6 +95,17 @@ def format_cell(value):
     return str(value)
 
 
+def format_with_delta(row, key):
+    value = row.get(key)
+    delta = row.get(f"delta_{key}")
+    if value is None:
+        return "—"
+    if delta is None:
+        return format_cell(value)
+    precision = 4 if key in ("ssim", "lpips") else 3
+    return f"{format_cell(value)} ({delta:+.{precision}f})"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--experiment", default="baseline_A_baseline_B")
@@ -91,17 +117,26 @@ def main():
     root = args.results_root / args.experiment
     if not root.is_dir():
         parser.error(f"experiment directory missing: {root}")
-    rows = [collect(scene, group.name, scene.name,
-                    args.results_root / "baseline_A_baseline_B" / group.name / scene.name)
-            for group in sorted(root.iterdir()) if group.is_dir()
-            for scene in sorted(group.iterdir()) if scene.is_dir()]
+    rows = []
+    for group in sorted(root.iterdir()):
+        if not group.is_dir():
+            continue
+        for scene in sorted(group.iterdir()):
+            if not scene.is_dir():
+                continue
+            baseline_dir = args.results_root / "baseline_A_baseline_B" / group.name / scene.name
+            row = collect(scene, group.name, scene.name, baseline_dir)
+            baseline_row = (row if args.experiment == "baseline_A_baseline_B"
+                            else collect(baseline_dir, group.name, scene.name))
+            rows.append(add_baseline_deltas(row, baseline_row))
     if args.format in ("markdown", "both"):
-        print("| group | scene | PSNR | SSIM | LPIPS | A(s) | ReSplat(s) | B(s) | total(s) | ref30k(s) / PSNR |")
+        print("| group | scene | PSNR (Δ) | SSIM (Δ) | LPIPS (Δ) | A(s) (Δ) | ReSplat(s) (Δ) | B(s) (Δ) | total(s) (Δ) | ref30k(s) / PSNR |")
         print("|---|---|---:|---:|---:|---:|---:|---:|---:|---|")
         for row in rows:
             ref = (f"{format_cell(row['reference_30k_seconds'])} / "
                    f"{format_cell(row['reference_30k_psnr'])}")
-            print("| " + " | ".join(format_cell(row[key]) for key in (
+            print("| " + " | ".join(format_with_delta(row, key)
+                                    if key in DELTA_FIELDS else format_cell(row[key]) for key in (
                 "group", "scene", "psnr", "ssim", "lpips", "A_seconds",
                 "resplat_seconds", "B_seconds", "total_seconds")) + f" | {ref} |")
     if args.format in ("json", "both"):

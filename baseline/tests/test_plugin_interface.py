@@ -5,13 +5,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import cv2
+import numpy as np
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from utils_A import select_context  # noqa: E402
 from utils_B.fastgs import render_command, train_command  # noqa: E402
 from utils_B import short_budget  # noqa: E402
-from collect_results import collect  # noqa: E402
+from utils_B import regularized  # noqa: E402
+from collect_results import add_baseline_deltas, collect  # noqa: E402
 import run_pipeline  # noqa: E402
 
 
@@ -28,6 +32,29 @@ class PluginInterfaceTest(unittest.TestCase):
         self.assertEqual(select_context("fps", train_indices, 2, centers), [0, 3])
         self.assertEqual(select_context("fps", train_indices, 2, centers), [0, 3])
         self.assertEqual(select_context("fps", train_indices, 8, centers), [0, 1, 2, 3])
+
+    def test_quality_filter_replaces_soft_uniform_frame_with_nearby_train(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rng = np.random.default_rng(7)
+            paths = []
+            for index in range(8):
+                image = rng.integers(0, 256, (64, 64), dtype=np.uint8)
+                if index == 0:
+                    image = cv2.GaussianBlur(image, (15, 15), 4)
+                path = Path(tmp) / f"{index}.png"
+                cv2.imwrite(str(path), image)
+                paths.append(path)
+            selected = select_context("quality_filter", list(range(8)), 4,
+                                      image_paths=paths)
+            self.assertEqual(selected, [1, 2, 4, 7])
+
+    def test_coverage_local_pairs_boundary_and_nearby_view(self):
+        centers = [[0, 0, 0], [1, 0, 0], [2, 0, 0], [10, 0, 0]]
+        directions = [[0, 0, 1]] * 4
+        self.assertEqual(select_context("coverage_local", list(range(4)), 2,
+                                        centers=centers, directions=directions), [2, 3])
+        self.assertEqual(select_context("coverage_local", list(range(4)), 4,
+                                        centers=centers, directions=directions), [0, 1, 2, 3])
 
     def test_fastgs_adapter_preserves_training_and_render_flags(self):
         train = train_command("work", "model", "init.ply", 10000)
@@ -59,6 +86,26 @@ class PluginInterfaceTest(unittest.TestCase):
             result = json.loads((out / "module_b.json").read_text())
             self.assertEqual(result["adapter"], "short_schedule")
             self.assertEqual(result["position_lr_max_steps"], 7000)
+
+    def test_regularized_adapter_adds_only_terminal_pruning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            calls = []
+
+            def fake_run(command, **_):
+                calls.append(command)
+                (out / "module_b.json").write_text('{"total_seconds": 10}')
+
+            args = ["regularized.py", "train", "--work", "work", "--out", str(out),
+                    "--init-ply", "init.ply", "--iterations", "7000"]
+            with patch.object(regularized.subprocess, "run", side_effect=fake_run):
+                with patch.object(sys, "argv", args):
+                    regularized.main()
+            self.assertEqual(calls[0][-3:], ["--position_lr_max_steps", "7000",
+                                             "--final_prune_fastgs"])
+            self.assertIn("--skip_final_opacity_reset", calls[0])
+            self.assertEqual(json.loads((out / "module_b.json").read_text())["adapter"],
+                             "regularized")
 
     def test_collects_external_billboard_report_without_stage_files(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -116,6 +163,19 @@ class PluginInterfaceTest(unittest.TestCase):
             reused = collect(other, "hw", "billboard", scene)
             self.assertEqual(reused["reference_30k_B_budget_seconds"], 600.0)
             self.assertEqual(reused["reference_source"], "baseline_A_baseline_B")
+
+    def test_collects_experiment_minus_baseline_deltas(self):
+        baseline = {"psnr": 22.5, "ssim": 0.8, "lpips": 0.16,
+                    "A_seconds": 10, "resplat_seconds": 30,
+                    "B_seconds": 70, "total_seconds": 110}
+        experiment = {"psnr": 22.7, "ssim": 0.81, "lpips": 0.15,
+                      "A_seconds": 11, "resplat_seconds": 29,
+                      "B_seconds": 50, "total_seconds": 90}
+        row = add_baseline_deltas(experiment, baseline)
+        self.assertAlmostEqual(row["delta_psnr"], 0.2)
+        self.assertAlmostEqual(row["delta_lpips"], -0.01)
+        self.assertEqual(row["delta_B_seconds"], -20)
+        self.assertEqual(row["delta_total_seconds"], -20)
 
     def test_single_scene_entry_writes_standard_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:

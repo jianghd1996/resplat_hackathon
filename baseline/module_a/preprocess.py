@@ -549,6 +549,7 @@ def write_work_dir(out_dir, scene_dir, pose_dict, num_context, llffhold, max_res
     images_txt = os.path.join(out_dir, "sparse/0/images.txt")
     kept = []
     centers_by_name = {}
+    directions_by_name = {}
     with open(images_txt, "w") as f:
         for idx, name in enumerate(names):
             if name not in intr["poses"]:
@@ -561,13 +562,17 @@ def write_work_dir(out_dir, scene_dir, pose_dict, num_context, llffhold, max_res
                     f"{t[0]:.12g} {t[1]:.12g} {t[2]:.12g} 1 {stem}.png\n\n")
             kept.append(stem + ".png")
             centers_by_name[stem + ".png"] = -np.asarray(R).T @ np.asarray(t)
+            directions_by_name[stem + ".png"] = np.asarray(R).T @ np.array([0., 0., 1.])
 
     # Split + context selection (mirrors vanilla 3DGS llffhold split)
     order = sorted(kept)
     test_idx = [i for i in range(len(order)) if i % llffhold == 0]
     train_idx = [i for i in range(len(order)) if i % llffhold != 0]
     train_centers = np.stack([centers_by_name[order[i]] for i in train_idx])
-    ctx = select_context(module_a, train_idx, num_context, centers=train_centers)
+    train_directions = np.stack([directions_by_name[order[i]] for i in train_idx])
+    train_image_paths = [os.path.join(img_out, order[i]) for i in train_idx]
+    ctx = select_context(module_a, train_idx, num_context, centers=train_centers,
+                         directions=train_directions, image_paths=train_image_paths)
     split = {
         "images": order,
         "train": [order[i] for i in train_idx],
