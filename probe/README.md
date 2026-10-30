@@ -13,13 +13,14 @@
 ```bash
 conda run -n resplat python probe/dataset_census.py
 conda run -n resplat python probe/covisibility_swaps.py
+conda run -n resplat python probe/condition_audit.py
 conda run -n resplat python probe/context_geometry.py
 conda run -n fastgs python probe/result_forensics.py
 conda run -n fastgs python probe/training_mechanics.py
 conda run -n resplat python probe/plot_geometry.py --out md/assets/rethink_v0_coverage.svg
 ```
 
-第二条依赖第一条输出，最后的制图依赖前两条；其余可独立运行。`context_geometry.py` 和
+第二条依赖第一条输出，condition审计和最后的制图依赖前两条；其余可独立运行。`context_geometry.py` 和
 `result_forensics.py` 需要本机保留的 v0 实验 PLY、划分、PNG 和 JSON。
 `training_mechanics.py` 使用实际 FastGS 类和 LPIPS 初始化，CPU 上验证状态变化；
 首次没有感知网络缓存时可能触发模型下载。它恢复随机状态仅用于本进程中的对照。
@@ -28,6 +29,7 @@ conda run -n resplat python probe/plot_geometry.py --out md/assets/rethink_v0_co
 |---|---|---|
 | `dataset_census.py` | 全部 13 场景的位姿路径、距离、朝向、FOV、图像代理分布及三种 A 的轨迹覆盖 | 不做 SfM，不读测试图像计算质量代理；DL3DV 无轨迹，不当作覆盖为零 |
 | `covisibility_swaps.py` | 保留均匀骨架、至多两次受约束交换，能否提高训练轨迹支持 | 7 场景有轨迹，6 场景回退；离线代理提升不是 PSNR/LPIPS 提升 |
+| `condition_audit.py` | FOV、角度/空间缺口、训练支持能否描述不同的选择需求 | 仅描述全集输入条件与已有代理增益，不拟合阈值，不生成自适应策略质量成绩 |
 | `context_geometry.py` | 三主场景的高斯中心视锥覆盖、多重覆盖、冗余与相机距离 | 固定 20k 点、seed=0；不考虑遮挡；混合点云只是参考点集敏感性检查 |
 | `result_forensics.py` | 已有逐视图退化是否集中、对照输入是否相同、初始/最终尺度和透明度、残差空间分布 | 不产生新训练结果；PNG 残差受保存量化影响 |
 | `training_mechanics.py` | LPIPS 初始化是否改 RNG、透明度限幅是否清空 Adam 状态、分裂横向尺度变化 | 状态与解析微实验，不能单独量化对最终质量的贡献 |
