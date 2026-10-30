@@ -8,4 +8,5 @@ BACKENDS = {"fastgs": "fastgs.py", "short_budget": "short_budget.py",
             "terminal_guard": "terminal_guard.py",
             "topology_freeze": "topology_freeze.py",
             "opacity_state": "opacity_state.py",
-            "topology_opacity": "topology_opacity.py"}
+            "topology_opacity": "topology_opacity.py",
+            "surface_split": "surface_split.py"}

@@ -103,6 +103,9 @@ def training(dataset, opt, pipe, args):
 
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
     gaussians.long_axis_split = args.long_axis_split
+    gaussians.surface_conserving_split = args.surface_conserving_split
+    if gaussians.long_axis_split and gaussians.surface_conserving_split:
+        raise ValueError("long-axis and surface-conserving split are mutually exclusive")
     gaussians.preserve_unclamped_opacity_state = args.preserve_unclamped_opacity_state
 
     # output dir + config dump (mirrors classic prepare_output_and_logger)
@@ -303,6 +306,7 @@ def training(dataset, opt, pipe, args):
         "peak_gaussians": peak_gaussians if args.topk_growth else None,
         "coarse_to_fine": bool(args.coarse_to_fine),
         "long_axis_split": bool(args.long_axis_split),
+        "surface_conserving_split": bool(args.surface_conserving_split),
         "perceptual_loss": bool(args.perceptual_loss),
         "perceptual_interval": 16 if args.perceptual_loss else None,
         "perceptual_weight": 0.1 if args.perceptual_loss else None,
@@ -349,6 +353,8 @@ if __name__ == "__main__":
                         help="train first 40 percent of steps at half image width and height")
     parser.add_argument("--long_axis_split", action="store_true",
                         help="sample FastGS split children along the longest local scale axis")
+    parser.add_argument("--surface_conserving_split", action="store_true",
+                        help="use antithetic tangent children that conserve surface moments")
     parser.add_argument("--perceptual_loss", action="store_true",
                         help="add frozen VGG LPIPS on one training view every 16 steps")
     args = parser.parse_args()

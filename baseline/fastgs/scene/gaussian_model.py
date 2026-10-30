@@ -71,6 +71,7 @@ class GaussianModel:
         self.preserve_unclamped_opacity_state = False
         self.opacity_clamped_total = 0
         self.long_axis_split = False
+        self.surface_conserving_split = False
         self.setup_functions()
 
     def capture(self, optimizer_type):
@@ -457,18 +458,37 @@ class GaussianModel:
         mask = torch.logical_and(metric_mask, filter)
         selected_pts_mask[:mask.shape[0]] = mask
 
-        stds = self.get_scaling[selected_pts_mask].repeat(N,1)
+        parent_scales = self.get_scaling[selected_pts_mask]
+        stds = parent_scales.repeat(N,1)
         means =torch.zeros((stds.size(0), 3),device="cuda")
-        if self.long_axis_split:
-            axis = stds.argmax(dim=1, keepdim=True)
-            samples = torch.zeros_like(stds)
-            samples.scatter_(1, axis, torch.randn_like(axis, dtype=stds.dtype) *
-                             stds.gather(1, axis))
+        if self.surface_conserving_split:
+            if N != 2:
+                raise ValueError("surface-conserving split is defined for two children")
+            tangent_axes = parent_scales.topk(2, dim=1).indices
+            angle = torch.rand(parent_scales.shape[0], device="cuda") * (2 * torch.pi)
+            tangent_value = torch.stack((torch.cos(angle), torch.sin(angle)), dim=1)
+            tangent_value *= parent_scales.gather(1, tangent_axes)
+            first = torch.zeros_like(parent_scales)
+            first.scatter_(1, tangent_axes, tangent_value)
+            samples = torch.cat((first, -first), dim=0)
         else:
-            samples = torch.normal(mean=means, std=stds)
+            if self.long_axis_split:
+                axis = stds.argmax(dim=1, keepdim=True)
+                samples = torch.zeros_like(stds)
+                samples.scatter_(1, axis, torch.randn_like(axis, dtype=stds.dtype) *
+                                 stds.gather(1, axis))
+            else:
+                samples = torch.normal(mean=means, std=stds)
         rots = build_rotation(self._rotation[selected_pts_mask]).repeat(N,1,1)
         new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
-        new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
+        if self.surface_conserving_split:
+            child_scales = parent_scales.repeat(N, 1)
+            child_axes = tangent_axes.repeat(N, 1)
+            child_scales.scatter_(1, child_axes,
+                                  child_scales.gather(1, child_axes) / np.sqrt(2.0))
+            new_scaling = self.scaling_inverse_activation(child_scales)
+        else:
+            new_scaling = self.scaling_inverse_activation(stds / (0.8*N))
         new_rotation = self._rotation[selected_pts_mask].repeat(N,1)
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)

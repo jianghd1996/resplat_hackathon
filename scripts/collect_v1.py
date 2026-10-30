@@ -13,7 +13,8 @@ TARGET = ROOT / "md/main_table_v1.md"
 SCENES = json.loads((ROOT / "baseline/scenes.json").read_text())
 START = "<!-- V1_RESULTS_START -->"
 END = "<!-- V1_RESULTS_END -->"
-BACKENDS = ("terminal_guard", "topology_freeze", "opacity_state", "topology_opacity")
+BACKENDS = ("terminal_guard", "topology_freeze", "opacity_state", "topology_opacity",
+            "surface_split")
 
 
 def read(path):
@@ -87,6 +88,11 @@ def main():
             if backend == "topology_freeze":
                 lines.extend(["B 代码为 `baseline/utils_B/topology_freeze.py`：沿用 `no_reset7000` 的7000步日程，",
                               "仅将密集化截止改为5600步，随后1400步优化已有高斯。参数跨三场景相同。", ""])
+            elif backend == "surface_split":
+                lines.extend(["B 代码为 `baseline/utils_B/surface_split.py`：保持 `no_reset7000` 的预算、",
+                              "增密时刻、评分、剪枝、loss与opacity规则，只替换两子点split算子。",
+                              "子点在父高斯两个最大局部轴构成的切平面反对称位移，切向尺度除以√2，",
+                              "最短法向尺度保持不变；参数跨三场景相同。", ""])
             else:
                 if backend == "opacity_state":
                     lines.extend(["B 代码为 `baseline/utils_B/opacity_state.py`：保持7000步、密集化、0.8 opacity限幅",

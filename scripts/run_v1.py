@@ -53,7 +53,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--module-a", choices=("uniform16", "covisibility_guarded"), default="uniform16")
     ap.add_argument("--backend", choices=("no_reset", "terminal_guard", "topology_freeze",
-                                         "opacity_state", "topology_opacity"), required=True)
+                                         "opacity_state", "topology_opacity", "surface_split"),
+                    required=True)
     ap.add_argument("--groups", nargs="+", choices=tuple(SCENES), default=list(SCENES))
     ap.add_argument("--gpus", nargs="+", type=int, choices=(0, 1), default=[0, 1])
     args = ap.parse_args()
