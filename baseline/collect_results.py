@@ -23,6 +23,12 @@ def collect(scene_dir, group, scene):
     b = read(scene_dir / "module_b/module_b.json")
     metric = read(scene_dir / "module_b/metrics.json")
     reference = read(scene_dir / "reference_3dgs/module_b.json")
+    reference_iterations = reference.get("iterations")
+    reference_train_seconds = reference.get("train_seconds")
+    reference_iter_seconds = (reference_train_seconds / reference_iterations
+                              if isinstance(reference_train_seconds, (int, float))
+                              and isinstance(reference_iterations, int)
+                              and reference_iterations > 0 else None)
     mean = metric.get("mean") or report.get("metrics") or report
     times = {
         "A": a.get("total_seconds", report.get("time_A", report.get("A_seconds"))),
@@ -45,8 +51,13 @@ def collect(scene_dir, group, scene):
         "lpips": mean.get("lpips"), "A_seconds": times["A"],
         "resplat_seconds": times["ReSplat"], "B_seconds": times["B"],
         "total_seconds": total,
-        "reference_30k_seconds": reference.get("total_seconds"),
-        "reference_30k_psnr": reference.get("test_psnr_quick"),
+        "reference_30k_seconds": (reference.get("total_seconds")
+                                  if reference_iterations == 30000 else None),
+        "reference_30k_psnr": (reference.get("test_psnr_quick")
+                               if reference_iterations == 30000 else None),
+        "reference_T_iter_seconds": reference_iter_seconds,
+        "reference_30k_B_budget_seconds": (30000 * reference_iter_seconds
+                                           if reference_iter_seconds is not None else None),
     }
 
 

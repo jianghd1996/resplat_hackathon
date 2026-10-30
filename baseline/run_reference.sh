@@ -30,6 +30,7 @@ B_LABEL=$MODULE_B
 [ "$MODULE_A" = "uniform16" ] && A_LABEL=baseline
 [ "$MODULE_B" = "fastgs" ] && B_LABEL=baseline
 [ "$MODULE_B" = "short_budget" ] && B_LABEL="short_budget${BUDGET_ITERATIONS}"
+[ "$MODULE_B" = "short_schedule" ] && B_LABEL="short_schedule${BUDGET_ITERATIONS}"
 RESULTS="$COMP/results/${A_LABEL}_A_${B_LABEL}_B"
 
 # shellcheck disable=SC1091
@@ -51,7 +52,9 @@ for GRP in "${SCENE_GROUPS[@]}"; do
 
   echo ""
   echo "=== [$GRP] $SCENE : classic 3DGS reference (30k, random init) ==="
-  export PYTHONPATH="$HERE/3dgs:$HERE/3dgs/submodules/diff-gaussian-rasterization:$HERE/3dgs/submodules/simple-knn:${PYTHONPATH:-}"
+  # Use compiled CUDA extensions from the active environment. Putting vendored
+  # source submodule paths first shadows their installed _C binaries.
+  export PYTHONPATH="$HERE/3dgs:${PYTHONPATH:-}"
   python "$HERE/module_b/train_from_ply.py" \
       -s "$WORK" \
       -m "$RES" \

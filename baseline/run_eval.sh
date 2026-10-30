@@ -32,6 +32,7 @@ B_LABEL=$MODULE_B
 [ "$MODULE_A" = "uniform16" ] && A_LABEL=baseline
 [ "$MODULE_B" = "fastgs" ] && B_LABEL=baseline
 [ "$MODULE_B" = "short_budget" ] && B_LABEL="short_budget${ITERATIONS}"
+[ "$MODULE_B" = "short_schedule" ] && B_LABEL="short_schedule${ITERATIONS}"
 EXPERIMENT="${A_LABEL}_A_${B_LABEL}_B"
 RESULTS="$COMP/results/$EXPERIMENT"
 

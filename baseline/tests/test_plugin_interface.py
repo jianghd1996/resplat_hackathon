@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 from utils_A import select_context  # noqa: E402
 from utils_B.fastgs import render_command, train_command  # noqa: E402
+from utils_B import short_budget  # noqa: E402
 from collect_results import collect  # noqa: E402
 import run_pipeline  # noqa: E402
 
@@ -36,6 +37,28 @@ class PluginInterfaceTest(unittest.TestCase):
         render = render_command("work", "model", 10000)
         self.assertEqual(render[2:], ["-s", "work", "-m", "model", "--eval", "-r", "1",
                                        "--backend", "fastgs", "--iteration", "10000", "--quiet"])
+
+    def test_short_schedule_changes_only_learning_rate_horizon(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            calls = []
+
+            def fake_run(command, **_):
+                calls.append(command)
+                (out / "module_b.json").write_text('{"total_seconds": 10}')
+
+            args = ["short_budget.py", "train", "--work", "work", "--out", str(out),
+                    "--init-ply", "init.ply", "--iterations", "7000"]
+            with patch.object(short_budget.subprocess, "run", side_effect=fake_run):
+                with patch.object(sys, "argv", args):
+                    short_budget.main(short_schedule=False)
+                with patch.object(sys, "argv", args):
+                    short_budget.main(short_schedule=True)
+            self.assertEqual(calls[0] + ["--position_lr_max_steps", "7000"], calls[1])
+            self.assertIn("--skip_final_opacity_reset", calls[0])
+            result = json.loads((out / "module_b.json").read_text())
+            self.assertEqual(result["adapter"], "short_schedule")
+            self.assertEqual(result["position_lr_max_steps"], 7000)
 
     def test_collects_external_billboard_report_without_stage_files(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -65,6 +88,24 @@ class PluginInterfaceTest(unittest.TestCase):
             self.assertEqual(refreshed["psnr"], 23.0)
             self.assertEqual(refreshed["test_views"], 9)
             self.assertEqual(refreshed["total_seconds"], 18)
+
+    def test_reference_budget_uses_measured_training_iterations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scene = Path(tmp)
+            reference = scene / "reference_3dgs/module_b.json"
+            reference.parent.mkdir(parents=True)
+            reference.write_text(json.dumps({"iterations": 1000,
+                                             "train_seconds": 20.0,
+                                             "total_seconds": 25.0}))
+            probe = collect(scene, "hw", "billboard")
+            self.assertEqual(probe["reference_T_iter_seconds"], 0.02)
+            self.assertIsNone(probe["reference_30k_seconds"])
+            reference.write_text(json.dumps({"iterations": 30000,
+                                             "train_seconds": 600.0,
+                                             "total_seconds": 615.0}))
+            full = collect(scene, "hw", "billboard")
+            self.assertEqual(full["reference_30k_B_budget_seconds"], 600.0)
+            self.assertEqual(full["reference_30k_seconds"], 615.0)
 
     def test_single_scene_entry_writes_standard_outputs(self):
         with tempfile.TemporaryDirectory() as tmp:
