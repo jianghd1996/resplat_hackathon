@@ -170,7 +170,8 @@ def training(dataset, opt, pipe, args):
                         pruning_score=pruning_score)
                 reset_due = (iteration % opt.opacity_reset_interval == 0 or
                              (dataset.white_background and iteration == opt.densify_from_iter))
-                if reset_due and not (args.skip_final_opacity_reset and iteration == opt.iterations):
+                if (reset_due and not args.disable_opacity_reset
+                        and not (args.skip_final_opacity_reset and iteration == opt.iterations)):
                     gaussians.reset_opacity()
 
             if iteration < opt.iterations:
@@ -213,6 +214,7 @@ def training(dataset, opt, pipe, args):
         "final_prune_fastgs": bool(args.final_prune_fastgs),
         "iterations": int(opt.iterations),
         "skip_final_opacity_reset": bool(args.skip_final_opacity_reset),
+        "disable_opacity_reset": bool(args.disable_opacity_reset),
         "mult": opt.mult,
         "num_train_views": len(scene.getTrainCameras()),
         "num_test_views": len(scene.getTestCameras()),
@@ -238,6 +240,8 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--skip_final_opacity_reset", action="store_true",
                         help="avoid saving immediately after an opacity reset at the last step")
+    parser.add_argument("--disable_opacity_reset", action="store_true",
+                        help="skip all scheduled opacity resets during short training")
     parser.add_argument("--final_prune_fastgs", action="store_true",
                         help="apply FastGS multiview final prune before saving")
     args = parser.parse_args()

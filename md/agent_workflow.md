@@ -30,6 +30,6 @@ A 的现有插件接口只改变 context 选帧。若新增锐度或色彩预处
 3. 先检查接口、语法与小场景冒烟，再跑 DL3DV、hw、mipnerf360 三组主场景。核对 `split.json`、PLY 可被标准渲染器读取、测试 PNG 与 GT 数量一致。实测同分辨率/视角口径的经典 3DGS `T_iter`，验证 `time_B < 30000 × T_iter`。A、ReSplat、B 必须取自同一次运行，不拼接其他实验的时间。
 4. 比较留出集 PSNR、SSIM、VGG-LPIPS 和时间；LPIPS 占 40 分，优先观察其变化，同时守住有效性条件。记录失败原因，下一轮优先试机制明确、跨场景有效且容易回退的候选。
 5. 在服务器运行 `python baseline/collect_results.py --experiment <A名>_A_<B名>_B --format both`，取得可复制的 Markdown 和 JSON。核对代码提交、环境、权重校验和、位姿来源、图像/测试视角数、分辨率、统一参数和计时口径；收集器优先读取新阶段 JSON，旧 `report.json` 仅作回退。经典 30k 参考可从同机同场景的 `baseline_A_baseline_B` 目录读取，JSON 的 `reference_source` 标明来源；该参考不计入实验的 A/ReSplat/B 阶段时间。其他缺失指标填 `—`，不推算或借用别的运行数值。
-6. 在 `md/main_table.md` 后追加 `xx(A) + xx(B)` 小节：先说明 A/B 设计、对应代码文件和统一参数，再用同样列顺序记录三主场景，并注明硬件、位姿缓存状态、经典 30k 参考与报告来源。历史基线、当前服务器复现和新组合分开保留。将验证过的有益组合送入下一轮交叉实验。
+6. 在 `md/main_table.md` 后追加 `xx(A) + xx(B)` 小节：先说明 A/B 设计、对应代码文件和统一参数，再用同样列顺序记录三主场景；每个本机实验数值旁标记该行减去同机 baseline 的 Δ，包含质量与 A/ReSplat/B/总耗时。注明硬件、位姿缓存状态、经典 30k 参考与报告来源。历史基线、当前服务器复现和新组合分开保留。将验证过的有益组合送入下一轮交叉实验。
 
 正式命令、三种数据格式和服务器环境见 `README_ours.md`；候选与优先级见 `md/plan_v0.md`；对外汇总以 `md/main_table.md` 为准。

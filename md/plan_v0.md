@@ -13,7 +13,7 @@
 | P2 | B：`utils_B/regularized.py` | 在已验证的短程训练器上试重要性剪枝、视图锥尺度约束、曝光补偿，重点观察留出集 LPIPS；曝光若用于训练，评测渲染也必须保持一致。 |
 | P3 | B：`utils_B/pose_refine.py` 等 | 仅当前两档有收益且渲染器支持梯度时试位姿精化、长轴分裂、稀疏优化器及感知损失；确保导出相机/PLY 和评测一致。 |
 
-测试顺序：先锁定同一批三组主场景和统一训练/测试划分，再逐个替换 A 或 B，之后测试 A/B 组合。每次记录 Git 提交、环境、权重校验和、参数、位姿来源、图像数/分辨率、阶段计时、PSNR/SSIM/LPIPS、标准 PLY 和渲染 PNG。大文件与原始 JSON 留在服务器端 `results/`；将可核实的汇总写入 `md/main_table.md`。上述新策略只是待测假设，尚未实现或验证。
+测试顺序：先锁定同一批三组主场景和统一训练/测试划分，再逐个替换 A 或 B，之后测试 A/B 组合。每次记录 Git 提交、环境、权重校验和、参数、位姿来源、图像数/分辨率、阶段计时、PSNR/SSIM/LPIPS、标准 PLY 和渲染 PNG。大文件与原始 JSON 留在服务器端 `results/`；将可核实的汇总写入 `md/main_table.md`。上表是初始模块队列；已完成和待测状态以下方清单为准。
 
 ## 本轮执行记录与判据
 
@@ -74,25 +74,38 @@
   5000 步更快且 DL3DV 更好，7000 步在 HW 与 `counter` 质量更好。
   两者 B 时间均处于同机经典 30k 的 10% 内。后续在官方评分细节明确时
   统一选一个预算，不能逐场景挑选。
-- [ ] P2 / `quality_filter` A：在统一 resize 后把训练候选图缩至
+- [x] P2 / `quality_filter` A：在统一 resize 后把训练候选图缩至
   256×256 灰度图，计算 Laplacian 方差，以同场景训练候选的中位数归一化。
   对 `uniform16` 原选帧中低于 0.8 倍中位数的帧，替换为序列位置最近的
   合格训练帧；阈值和替换规则跨场景固定，不使用测试图像。与原基线 B
   10000 步对照，三场景至少两组 LPIPS 改善且 PSNR 不下降超过 0.5 dB
   才考虑组合。离线审计显示该阈值将改变 DL3DV 5/16、HW 0/16、
   `counter` 3/16 张 context；该统计不能证明它们实际模糊，需完整评估。
-- [ ] P2 / `coverage_local` A：从训练相机中心及前向方向选 8 个分散的
+  三场景已测：LPIPS Δ 为 +0.0009、+0.0001、-0.0011，仅 counter 改善，
+  未通过至少两组改善条件；A 读图成本增加，不进入组合。
+- [x] P2 / `coverage_local` A：从训练相机中心及前向方向选 8 个分散的
   边界锚帧，再为每个锚帧选 1 张姿态最近的邻帧，凑齐统一 16 张
   context。位置按训练相机范围归一化，姿态距离固定为 0.6×位置距离
   +0.4×方向差；邻近姿态只是共视代理，未使用 3D 点重叠或遮挡。
   只改 A，B 保持原 10000 步。对照 `uniform16` 与 FPS，
   按同样的三场景 LPIPS/PSNR 门槛及固定点集视锥覆盖诊断判断是否保留。
-- [ ] P2 / `regularized7000` B：以通过门槛的 `short_schedule7000` 为
+  三场景 LPIPS Δ 为 +0.0095、+0.0063、+0.0037，DL3DV PSNR Δ
+  为 -0.697 dB，未通过。`counter` 固定点集覆盖率为 94.85%，均匀基线
+  为 99.14%；锚帧数从 8 扫到 16 仍未恢复基线覆盖率，故不再跑该系列的
+  完整组合。离线扫描在本机 `results/coverage_anchor_sweep/counter.json`。
+- [x] P2 / `regularized7000` B：以通过门槛的 `short_schedule7000` 为
   控制组，只在训练结束后增加 FastGS 已有的十个训练相机多视图评分和
   `final_prune_fastgs(min_opacity=0.01)`；标准 PLY 在剪枝后保存，渲染
   不改变。先用 `counter` 检验剪枝数量、PLY/PNG 和 LPIPS；若 LPIPS
   不优于控制组或 PSNR 恶化超过 0.5 dB，即停止，不推广到其余场景。
-  剪枝耗时计入 B。曝光和视图锥尺度是独立候选，不与此探针合并。
+  剪枝耗时计入 B。`counter` 实测从 299,985 个剪至 273,714 个高斯，
+  PSNR/LPIPS 为 27.328/0.2086，低于控制组的 27.532/0.2085，B
+  64.32 秒也比控制组 62.74 秒更慢，故按门槛停止。曝光和视图锥尺度是
+  独立候选，不与此探针合并。
+- [ ] P2 / `no_reset7000` B：以 `short_schedule7000` 为控制组，只跳过
+  训练中途的全部 opacity 重置，位置学习率日程及其他参数保持一致。
+  先测 `counter`，若 LPIPS 不改善或 PSNR 降幅超过 0.5 dB，则停止；
+  若通过，再跑另外两组并检查同一 PLY、训练/测试拆分与渲染数量。
 
 ## 待实验模块扩充（2026-10-30 检索，均未在本项目验证）
 
@@ -103,9 +116,14 @@
   沿用三场景 LPIPS/PSNR，并核对同一点集视锥覆盖率。此候选是受
   [Chen 等，CVPR 2026，Coverage Optimization for Camera View Selection](https://openaccess.thecvf.com/content/CVPR2026/html/Chen_Coverage_Optimization_for_Camera_View_Selection_CVPR_2026_paper.html)
   启发的低成本近似；论文的方法依赖场景覆盖信息，我们的姿态代理并非其实现。
-- [ ] P2 / `utils_A/frequency_quality.py`：用统一的归一化频域得分衡量候选帧
+- [x] P2 / 频域质量离线审计：用统一的归一化频域得分衡量候选帧
   细节，再与覆盖度共同选帧；需排查噪声、运动模糊和高频纹理导致的误选。
-  每帧 FFT 增加 A 时间，先在三组固定拆分上离线计算，再决定是否进入完整流水线。
+  已在三组固定拆分上计算每张训练图 256×256 灰度 FFT 的高频能量比例，
+  以同场景中位数的 0.8 倍审计原均匀 16 帧：DL3DV 5 张、HW 0 张、
+  `counter` 3 张低于阈值，其中 DL3DV 5 张与 Laplacian 筛选完全相同，
+  `counter` 2/3 张相同。原始统计见本机
+  `results/frequency_quality_audit/audit.json`。频率指标仍可能把低纹理误当
+  模糊；先看 `quality_filter` 的完整评估，再决定是否实现独立流水线。
   来源：[Li 等，2024，Frequency-based View Selection in Gaussian Splatting Reconstruction](https://arxiv.org/abs/2409.16470)。
 - [ ] P2 / 短程 B 调度：在已找到的有效迭代预算上，分别测试缩短位置学习率
   日程与跳过非末步 opacity 重置；一次只变一个参数，记录高斯数量、LPIPS 和

@@ -15,6 +15,7 @@ from utils_A import select_context  # noqa: E402
 from utils_B.fastgs import render_command, train_command  # noqa: E402
 from utils_B import short_budget  # noqa: E402
 from utils_B import regularized  # noqa: E402
+from utils_B import no_reset  # noqa: E402
 from collect_results import add_baseline_deltas, collect  # noqa: E402
 import run_pipeline  # noqa: E402
 
@@ -106,6 +107,25 @@ class PluginInterfaceTest(unittest.TestCase):
             self.assertIn("--skip_final_opacity_reset", calls[0])
             self.assertEqual(json.loads((out / "module_b.json").read_text())["adapter"],
                              "regularized")
+
+    def test_no_reset_adapter_disables_scheduled_opacity_resets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            calls = []
+
+            def fake_run(command, **_):
+                calls.append(command)
+                (out / "module_b.json").write_text('{"total_seconds": 10}')
+
+            args = ["no_reset.py", "train", "--work", "work", "--out", str(out),
+                    "--init-ply", "init.ply", "--iterations", "7000"]
+            with patch.object(no_reset.subprocess, "run", side_effect=fake_run):
+                with patch.object(sys, "argv", args):
+                    no_reset.main()
+            self.assertEqual(calls[0][-1], "--disable_opacity_reset")
+            self.assertIn("--position_lr_max_steps", calls[0])
+            self.assertEqual(json.loads((out / "module_b.json").read_text())["adapter"],
+                             "no_reset")
 
     def test_collects_external_billboard_report_without_stage_files(self):
         with tempfile.TemporaryDirectory() as tmp:

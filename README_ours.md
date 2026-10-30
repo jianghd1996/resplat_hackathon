@@ -81,6 +81,11 @@ python collect_results.py --experiment fps_A_baseline_B --format both
 位置学习率衰减终点缩至该预算，结果写到
 `results/baseline_A_short_schedule7000_B/`。两个模块都保留原始失败结果及
 阶段 JSON；详细假设、判据和实测结论见 `md/plan_v0.md` 与 `md/main_table.md`。
+P2 单 A 可用 `--module-a quality_filter` 或 `--module-a coverage_local`
+与 `--module-b fastgs` 分别测试。P2 最终剪枝探针使用 `ITERATIONS=7000`
+及 `--module-a uniform16 --module-b regularized`，结果写入
+`results/baseline_A_regularized7000_B/`；它从同样的 ReSplat PLY 开始，
+剪枝耗时计入 B。跨场景结论以总表实际完成的实验为准。
 收集脚本会从同机同场景的 `baseline_A_baseline_B` 目录读取 30k 参考并在
 JSON 的 `reference_source` 标明来源；各实验的 A、ReSplat、B 时间始终从
-该实验自身的阶段 JSON 读取。
+该实验自身的阶段 JSON 读取，同时输出该行相对同机基线的 Δ。
