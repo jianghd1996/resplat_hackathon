@@ -21,6 +21,13 @@ class PluginInterfaceTest(unittest.TestCase):
                          [0, 3, 7, 11, 14, 18, 22, 25, 29, 33, 36, 40, 44, 47, 51, 55])
         self.assertEqual(select_context("uniform16", list(range(8)), 16), list(range(8)))
 
+    def test_fps_uses_training_camera_geometry_and_is_deterministic(self):
+        train_indices = [1, 2, 3, 4]
+        centers = [[0, 0, 0], [1, 0, 0], [2, 0, 0], [10, 0, 0]]
+        self.assertEqual(select_context("fps", train_indices, 2, centers), [0, 3])
+        self.assertEqual(select_context("fps", train_indices, 2, centers), [0, 3])
+        self.assertEqual(select_context("fps", train_indices, 8, centers), [0, 1, 2, 3])
+
     def test_fastgs_adapter_preserves_training_and_render_flags(self):
         train = train_command("work", "model", "init.ply", 10000)
         self.assertEqual(train[2:], ["-s", "work", "-m", "model", "--eval", "-r", "1",

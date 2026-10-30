@@ -3,7 +3,7 @@
 import numpy as np
 
 
-def select(train_indices, count=16):
+def select(train_indices, count=16, centers=None):
     if count < 1:
         raise ValueError("context count must be positive")
     if count >= len(train_indices):

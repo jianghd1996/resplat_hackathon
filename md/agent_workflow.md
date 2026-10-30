@@ -9,7 +9,7 @@
 | 位置 | 职责与接入方式 |
 |---|---|
 | `baseline/module_a/preprocess.py` | 共用三种数据格式的位姿读取/重建、图像规整、训练/测试拆分和 COLMAP 工作目录；通过 `--module-a` 选择策略。 |
-| `baseline/utils_A/<名称>.py` | 一个文件一种 A 策略。当前 `uniform16.py` 在训练视角顺序上均匀选最多 16 张；新策略提供 `select(train_indices, count)`，返回训练序列中的位置索引，并在 `utils_A/__init__.py` 的 `STRATEGIES` 注册。 |
+| `baseline/utils_A/<名称>.py` | 一个文件一种 A 策略。策略提供 `select(train_indices, count, centers=None)`，返回训练序列中的位置索引；`centers` 为同序的训练相机中心。需在 `utils_A/__init__.py` 的 `STRATEGIES` 注册。 |
 | `baseline/run_resplat.py` | 固定 ReSplat 黑盒调用及世界坐标系 PLY 导出；不得为 A/B 实验修改模型本体。 |
 | `baseline/utils_B/<名称>.py` | 一个文件一种 B 训练与评测渲染适配器。当前 `fastgs.py` 调用原 FastGS 训练器/渲染器；新适配器提供同样的 `train`、`render` 命令入口，并在 `utils_B/__init__.py` 的 `BACKENDS` 注册。 |
 | `baseline/run_pipeline.py` | 单场景一键运行，接收 `--scene`、`--output`、`--module-a`、`--module-b`，依次执行 A → 固定 ReSplat → B → 测试渲染 → 评估。 |
