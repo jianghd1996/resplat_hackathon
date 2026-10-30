@@ -18,7 +18,9 @@ Usage (fastgs conda env, from baseline/):
 """
 
 import json
+import hashlib
 import os
+import random
 import sys
 import time
 from pathlib import Path
@@ -213,7 +215,8 @@ def training(dataset, opt, pipe, args):
                 gaussians.add_densification_stats(viewspace_point_tensor,
                                                   visibility_filter)
                 if iteration > opt.densify_from_iter and \
-                        iteration % opt.densification_interval == 0:
+                        iteration % opt.densification_interval == 0 and \
+                        not (args.skip_final_densification and iteration == opt.iterations):
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                     camlist = sampling_cameras(train_cameras.copy())
                     importance_score, pruning_score = compute_gaussian_score_fastgs(
@@ -255,11 +258,13 @@ def training(dataset, opt, pipe, args):
             gaussians.final_prune_fastgs(min_opacity=0.01,
                                         pruning_score=pruning_score)
 
+    torch.cuda.synchronize()
     train_s = time.time() - t_train0
     if args.coarse_to_fine and coarse_seconds is None:
         coarse_seconds = train_s
 
     scene.save(opt.iterations)
+    torch.cuda.synchronize()
     total_s = time.time() - t_total0
 
     # quick test PSNR at mult=1.0 (faithful full-tile rendering)
@@ -286,6 +291,11 @@ def training(dataset, opt, pipe, args):
         "iterations": int(opt.iterations),
         "skip_final_opacity_reset": bool(args.skip_final_opacity_reset),
         "disable_opacity_reset": bool(args.disable_opacity_reset),
+        "skip_final_densification": bool(args.skip_final_densification),
+        "densify_until_iter": int(opt.densify_until_iter),
+        "seed": int(args.seed),
+        "init_ply_sha256": hashlib.sha256(Path(args.init_ply).read_bytes()).hexdigest() if args.init_ply else None,
+        "optimization_args": vars(opt),
         "topk_growth": bool(args.topk_growth),
         "growth_point_budget": max_points,
         "growth_eligible_total": growth_eligible_total if args.topk_growth else None,
@@ -327,6 +337,9 @@ if __name__ == "__main__":
                         help="avoid saving immediately after an opacity reset at the last step")
     parser.add_argument("--disable_opacity_reset", action="store_true",
                         help="skip all scheduled opacity resets during short training")
+    parser.add_argument("--skip_final_densification", action="store_true",
+                        help="do not change Gaussian topology on the final training iteration")
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--final_prune_fastgs", action="store_true",
                         help="apply FastGS multiview final prune before saving")
     parser.add_argument("--topk_growth", action="store_true",
@@ -342,5 +355,9 @@ if __name__ == "__main__":
     args.test_iterations = []
 
     safe_state(args.quiet)
+    if args.seed != 0:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
     training(lp.extract(args), op.extract(args), pp.extract(args), args)
     print("\nTraining complete.")
