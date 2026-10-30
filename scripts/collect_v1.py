@@ -193,7 +193,62 @@ def main():
                     "两个真正换帧的场景没有呈现方向一致且超过工程筛选量级的质量改善。",
                     "DL3DV 因缺少训练轨迹而选择了与uniform完全相同的16帧，其本次差异只反映管线运行漂移，",
                     "不能归因于A策略。结论是轨迹并集代理虽在离线探针中稳定提高，但尚未转化为留出质量；",
-                    "停止将固定A1直接扩成condition-guided A2，除非后续可靠性探针找到新的内容/遮挡证据。", ""])
+                    "固定A1不晋级；condition-guided A2作为独立路由实验记录在下方。", ""])
+    for module_a in ("covisibility_guarded", "condition_guided"):
+        root = RESULTS / f"{module_a}_A_topology_opacity7000_B"
+        if not root.is_dir():
+            continue
+        rows = []
+        for group, info in SCENES.items():
+            scene = info["scene"]
+            path = root / group / scene
+            if not (path / "report.json").exists():
+                continue
+            control_path = RESULTS / "baseline_A_topology_opacity7000_B" / group / scene
+            historical_split = read(RESULTS / "baseline_A_no_reset7000_B" / group / scene /
+                                    "work/split.json")
+            current_split = read(path / "work/split.json")
+            for key in ("train", "test", "resolution"):
+                assert current_split[key] == historical_split[key]
+            candidate = collect(path)
+            baseline = collect(RESULTS / "baseline_A_baseline_B" / group / scene)
+            control = collect(control_path)
+            reference = read(RESULTS / "baseline_A_baseline_B" / group / scene /
+                             "reference_3dgs/module_b.json")
+            rows.append((group, scene, candidate, baseline, control, reference, path))
+        if not rows:
+            continue
+        completed += len(rows)
+        lines.extend([f"### {module_a}(A) + topology_opacity7000(B)", ""])
+        if module_a == "covisibility_guarded":
+            lines.extend(["A 固定使用两次受约束共视交换；B 固定为当前质量优先的",
+                          "`topology_opacity7000`。该实验只检验固定A1与SOTA_B是否存在交互增益。", ""])
+        else:
+            lines.extend(["A 代码为 `baseline/utils_A/condition_guided.py`：将训练point3D ID作5个固定半拆分，",
+                          "候选至少4/5折留出覆盖为正、中位覆盖增益≥1个百分点且支持p10不降才偏离uniform。",
+                          "规则使主场景DL3DV/billboard回退uniform，仅counter采用两帧交换；",
+                          "B 固定为 `topology_opacity7000`。", ""])
+        lines.extend(["| **group** | **scene** | **PSNR (Δ)** | **SSIM (Δ)** | **LPIPS (Δ)** | **A(s) (Δ)** | **ReSplat(s) (Δ)** | **B(s) (Δ)** | **总耗时(s) (Δ)** | **经典30k参考** |",
+                      "|---|---|---:|---:|---:|---:|---:|---:|---:|---|"])
+        for group, scene, new, old, control, ref, path in rows:
+            fields = [group, (scene[:8]+"…" if group == "dl3dv" else scene),
+                      fmt(new["metric"]["psnr"], old["metric"]["psnr"], 3),
+                      fmt(new["metric"]["ssim"], old["metric"]["ssim"], 4),
+                      fmt(new["metric"]["lpips"], old["metric"]["lpips"], 4),
+                      fmt(new["A"], old["A"], 3), fmt(new["ReSplat"], old["ReSplat"], 3),
+                      fmt(new["B"], old["B"], 3), f'**{fmt(new["total"], old["total"], 3)}**',
+                      f'{ref["total_seconds"]}s / {ref["test_psnr_quick"]}']
+            lines.append("| " + " | ".join(fields) + " |")
+        lines.extend(["", "源数据与校验口径同上；括号内仍相对原10000步baseline，",
+                      "A的增量判断使用配对的uniform + topology_opacity7000控制。", ""])
+        if len(rows) == 3 and module_a == "covisibility_guarded":
+            lines.extend(["相对uniform SOTA_B，三场景PSNR变化 -0.099/+0.026/-0.037 dB，",
+                          "LPIPS变化 +0.0006/+0.0003/+0.0002，固定A1没有叠加效应。", ""])
+        if len(rows) == 3 and module_a == "condition_guided":
+            lines.extend(["相对uniform SOTA_B，三场景PSNR变化 -0.016/+0.026/-0.107 dB，",
+                          "LPIPS变化 +0.0004/+0.0005/+0.0004。DL3DV/billboard使用相同context，",
+                          "其差异只作运行漂移参照；唯一采取交换的counter三项质量均变差。",
+                          "训练轨迹condition能筛选代理增益，却不能预测留出质量，当前方向停止。", ""])
     if all((RESULTS / f"baseline_A_{name}7000_B").is_dir()
            for name in ("surface_topology", "topology_opacity")):
         lines.extend([
@@ -205,7 +260,9 @@ def main():
             "| 质量×速度 | `uniform16 + surface_topology7000` | 28.438 / 0.8880 / 0.1560 | "
             "DL3DV 7.83%、HW 4.94%、counter 8.90% | 三场景均在10%档；相对topology_freeze仅小幅改善 |", "",
             "百分比以该场景B时间除以经典3DGS 30000步纯训练时间计算；",
-            "等权均值只用于配置摘要，正式判断仍以逐场景表为主。", ""])
+            "等权均值只用于配置摘要，正式判断仍以逐场景表为主。",
+            "模块A结论：FPS、coverage_local、quality_filter、固定covisibility与condition-guided",
+            "均未在三主场景形成稳定增益；当前最强A仍为uniform16。", ""])
     if not completed:
         lines.append("正式单次实验尚未完成；早期重复运行只用于诊断，未入主表。")
     text = TARGET.read_text()

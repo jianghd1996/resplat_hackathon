@@ -148,7 +148,8 @@ A的I/O优化以本仓库现有解码/resize实现为基准，不需要为了引
 - [x] P1-A1：接入训练轨迹接口，精确重现全集7场景各2次交换及6场景回退；三主场景正式运行完成。billboard LPIPS相对配对控制+0.0007、counter -0.0002，代理改善未稳定转化为质量。
 - [x] A1与SOTA_B交互：`covisibility_guarded + topology_opacity7000`三场景相对uniform SOTA_B的PSNR为−0.099/+0.026/−0.037 dB，LPIPS为+0.0006/+0.0003/+0.0002，没有叠加效应。
 - [x] A1后决策更新：不把固定A1晋级，但按用户提出的A+B问题实现condition-guided A2。A2不读数据集名或测试质量；统一训练轨迹交叉验证规则让主场景DL3DV/billboard回退uniform，仅counter采用交换。
-- [ ] condition-guided A2 + topology_opacity7000：固定SOTA_B，只测试A路由；与uniform SOTA_B和固定A1+SOTA_B配对。若counter无改善且两个回退场景仅表现运行漂移，则停止当前轨迹condition方向。
+- [x] condition-guided A2 + topology_opacity7000：相对uniform SOTA_B，三场景PSNR为−0.016/+0.026/−0.107 dB，LPIPS为+0.0004/+0.0005/+0.0004。DL3DV/billboard实际回退uniform，只能作为运行漂移参照；唯一换帧的counter三项质量均退化。
+- [x] condition方向停止点：固定A1与condition A2均未给SOTA_B带来LPIPS增益。训练轨迹交叉验证能判断轨迹代理是否稳定增长，却不能判断遮挡、低纹理表面或ReSplat先验下的留出质量；不再调1%阈值或按场景路由。uniform继续作为当前最强A。
 - [x] 组合：完成 topology_freeze + opacity_state；三场景质量最佳，但counter的B约为经典30k的10.56%，归为质量优先配置。
 - [x] 晋级规则按当前工作原则修订：正式表保持固定seed0单次运行；小效应不因额外seed或重复中的最好值晋级。
 - [x] split守恒探针：三个ReSplat输入各固定抽样2048个父高斯，最短轴均100%处于`1e-6`；当前split的切面线性质量比为0.78125，平均质心漂移0.87–0.90个父尺度，切向父坐标二阶矩约膨胀到1.37–1.41。long-axis仍把另一切向矩压到0.390625，与v0质量失败机制一致。
