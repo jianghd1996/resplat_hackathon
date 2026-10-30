@@ -220,6 +220,32 @@ def evaluate_convention(
             rotation_error_degrees(predicted, colmap_rotation)
         )
 
+    # Hold the world rotation fixed to the one inferred from orientations, then
+    # fit only a positive scale and translation to the camera centers. This is
+    # the most direct consistency test between a position interpretation and
+    # the quaternion interpretation.
+    oriented_centers = (orientation_world_rotation @ frames_centers.T).T
+    oriented_mean = oriented_centers.mean(axis=0)
+    colmap_mean = colmap_centers.mean(axis=0)
+    oriented_centered = oriented_centers - oriented_mean
+    colmap_centered = colmap_centers - colmap_mean
+    denominator = float(np.sum(oriented_centered**2))
+    fixed_scale = (
+        float(np.sum(oriented_centered * colmap_centered) / denominator)
+        if denominator > 1e-15
+        else 0.0
+    )
+    fixed_translation = colmap_mean - fixed_scale * oriented_mean
+    fixed_aligned_centers = (
+        fixed_scale * oriented_centers + fixed_translation[None]
+    )
+    fixed_center_errors = np.linalg.norm(
+        fixed_aligned_centers - colmap_centers, axis=1
+    )
+    world_rotation_disagreement = rotation_error_degrees(
+        world_rotation, orientation_world_rotation
+    )
+
     return {
         "convention": name,
         "orientation_only": rotation_summary(errors_from_orientation_alignment),
@@ -234,6 +260,18 @@ def evaluate_convention(
                 float(center_errors.mean() / scene_extent) if scene_extent > 0 else None
             ),
         },
+        "center_alignment_with_orientation_rotation": {
+            "scale": fixed_scale,
+            "mean_error": float(fixed_center_errors.mean()),
+            "median_error": float(np.median(fixed_center_errors)),
+            "max_error": float(fixed_center_errors.max()),
+            "mean_error_over_extent": (
+                float(fixed_center_errors.mean() / scene_extent)
+                if scene_extent > 0
+                else None
+            ),
+        },
+        "world_rotation_disagreement_deg": world_rotation_disagreement,
         "world_rotation_from_centers": world_rotation.tolist(),
         "world_rotation_from_orientations": orientation_world_rotation.tolist(),
     }
@@ -328,6 +366,50 @@ def main() -> int:
             )
 
     results.sort(key=lambda item: item["orientation_only"]["mean_deg"])
+
+    # With the best quaternion convention fixed, test what posX/Y/Z means.
+    best_name = results[0]["convention"]
+    best_direction, best_axis_name = best_name.split("+", 1)
+    best_axis = axis_options[best_axis_name]
+    best_rotations = []
+    for timestamp in common:
+        raw = frames[timestamp]["rotation_raw"]
+        base_w2c = raw if best_direction == "w2c" else raw.T
+        best_rotations.append(best_axis @ base_w2c)
+
+    raw_positions = np.asarray([frames[name]["center"] for name in common])
+    position_candidates = {
+        "raw_as_camera_center": raw_positions,
+        "raw_as_w2c_translation": np.asarray(
+            [
+                -(rotation.T @ position)
+                for rotation, position in zip(best_rotations, raw_positions)
+            ]
+        ),
+        "raw_as_negative_w2c_translation": np.asarray(
+            [
+                rotation.T @ position
+                for rotation, position in zip(best_rotations, raw_positions)
+            ]
+        ),
+    }
+    position_results = []
+    for position_name, candidate_centers in position_candidates.items():
+        item = evaluate_convention(
+            best_name,
+            best_rotations,
+            candidate_centers,
+            colmap_rotations,
+            colmap_centers,
+        )
+        item["position_interpretation"] = position_name
+        position_results.append(item)
+    position_results.sort(
+        key=lambda item: item[
+            "center_alignment_with_orientation_rotation"
+        ]["mean_error_over_extent"]
+    )
+
     report = {
         "scene": str(scene),
         "frames_info": str(scene / "frames_info.txt"),
@@ -346,6 +428,7 @@ def main() -> int:
         },
         "colmap_cameras": camera_intrinsics_summary(reconstruction),
         "conventions": results,
+        "position_interpretations_for_best_rotation": position_results,
     }
 
     output = args.output or (scene / "frames_info_pose_diagnosis.json")
@@ -368,8 +451,27 @@ def main() -> int:
             f"{normalized:9.5f}"
         )
     print()
+    print(f"Best orientation convention: {best_name}")
+    print()
+    print(
+        "position interpretation              center rot disagreement   "
+        "free Sim3 err/ext   fixed-rotation err/ext"
+    )
+    print("-" * 104)
+    for item in position_results:
+        free_center = item["center_alignment"]["mean_error_over_extent"]
+        fixed_center = item[
+            "center_alignment_with_orientation_rotation"
+        ]["mean_error_over_extent"]
+        disagreement = item["world_rotation_disagreement_deg"]
+        print(
+            f"{item['position_interpretation']:<38} "
+            f"{disagreement:9.3f} deg             "
+            f"{free_center:9.5f}          {fixed_center:9.5f}"
+        )
+    print()
+    print(f"Best position interpretation: {position_results[0]['position_interpretation']}")
     print(f"Report: {output}")
-    print(f"Best orientation convention: {results[0]['convention']}")
     return 0
 
 
