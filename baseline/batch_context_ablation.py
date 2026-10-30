@@ -24,6 +24,7 @@ REPO = ROOT.parent
 sys.path.insert(0, str(ROOT))
 
 from utils_A import STRATEGIES, select_context  # noqa: E402
+from compare_context_selections import angular_matrix, rotation_angle_matrix  # noqa: E402
 from visualize_context_coverage import read_images  # noqa: E402
 
 
@@ -108,6 +109,33 @@ def ensure_link(link, target):
     link.symlink_to(target, target_is_directory=target.is_dir())
 
 
+def selection_pose_metrics(order, context_names, test_names, poses):
+    all_centers = np.stack([poses[name]["center"] for name in order])
+    context_centers = np.stack([poses[name]["center"] for name in context_names])
+    test_centers = np.stack([poses[name]["center"] for name in test_names])
+    context_rotations = np.stack([poses[name]["R"] for name in context_names])
+    test_rotations = np.stack([poses[name]["R"] for name in test_names])
+    scene_center = np.median(all_centers, axis=0)
+    scene_scale = max(float(np.median(np.linalg.norm(all_centers - scene_center, axis=1))), 1e-8)
+    center_distance = np.linalg.norm(
+        test_centers[:, None] - context_centers[None, :], axis=-1) / scene_scale
+    rotation_distance = rotation_angle_matrix(test_rotations, context_rotations)
+    orbit_distance = angular_matrix(
+        test_centers - scene_center, context_centers - scene_center)
+    pair_orbit = angular_matrix(
+        context_centers - scene_center, context_centers - scene_center)
+    upper = pair_orbit[np.triu_indices(len(context_names), 1)]
+    return {
+        "test_nearest_center_normalized_mean": float(center_distance.min(axis=1).mean()),
+        "test_nearest_center_normalized_max": float(center_distance.min(axis=1).max()),
+        "test_nearest_rotation_degrees_mean": float(rotation_distance.min(axis=1).mean()),
+        "test_nearest_rotation_degrees_max": float(rotation_distance.min(axis=1).max()),
+        "test_nearest_orbit_degrees_mean": float(orbit_distance.min(axis=1).mean()),
+        "test_nearest_orbit_degrees_max": float(orbit_distance.min(axis=1).max()),
+        "context_pair_orbit_degrees_mean": float(upper.mean()),
+    }
+
+
 def materialize_selection(args, group, scene_name, strategy):
     cache = args.output / "cache" / group / scene_name / "work"
     if not valid_cached_work(cache):
@@ -124,12 +152,11 @@ def materialize_selection(args, group, scene_name, strategy):
     train_indices = [index for index, name in enumerate(order) if name in train_set]
     test_indices = [index for index, name in enumerate(order) if name in test_set]
     poses = read_images(cache / "sparse/0/images.txt")
+    pose_tuples = {name: (poses[name]["R"], poses[name]["t"]) for name in order}
     start = time.perf_counter()
     selected_positions = select_context(
         strategy, train_indices, args.num_context,
-        order=order, test_indices=test_indices, poses={
-            name: (poses[name]["R"], poses[name]["t"]) for name in order
-        },
+        order=order, test_indices=test_indices, poses=pose_tuples,
     )
     selection_seconds = time.perf_counter() - start
     context = [order[train_indices[position]] for position in selected_positions]
@@ -150,9 +177,11 @@ def materialize_selection(args, group, scene_name, strategy):
         "cache_work": str(cache.resolve()),
     })
     write_json(work / "module_a.json", info)
+    pose_metrics = selection_pose_metrics(order, context, split["test"], poses)
     write_json(work / "selection.json", {
         "strategy": strategy, "num_context": len(context),
         "selection_seconds": selection_seconds, "context": context,
+        "pose_metrics": pose_metrics,
     })
     return work
 
@@ -271,11 +300,16 @@ def summarize(args, tasks, failures):
             "psnr": None, "ssim": None, "lpips": None,
             "num_test_views": None, "preprocess_seconds": None,
             "selection_seconds": None, "resplat_seconds": None,
+            "test_orbit_gap_mean": None, "test_rotation_gap_mean": None,
         }
         if cache_info_path.is_file():
             row["preprocess_seconds"] = read_json(cache_info_path).get("total_seconds")
         if selection_path.is_file():
-            row["selection_seconds"] = read_json(selection_path).get("selection_seconds")
+            selection = read_json(selection_path)
+            row["selection_seconds"] = selection.get("selection_seconds")
+            pose_metrics = selection.get("pose_metrics", {})
+            row["test_orbit_gap_mean"] = pose_metrics.get("test_nearest_orbit_degrees_mean")
+            row["test_rotation_gap_mean"] = pose_metrics.get("test_nearest_rotation_degrees_mean")
         if timing_path.is_file():
             row["resplat_seconds"] = read_json(timing_path).get("total_seconds")
         if metrics_path.is_file():
@@ -297,12 +331,14 @@ def summarize(args, tasks, failures):
             ssim_mean, ssim_std = mean_std([row["ssim"] for row in subset])
             lpips_mean, lpips_std = mean_std([row["lpips"] for row in subset])
             time_mean, time_std = mean_std([row["resplat_seconds"] for row in subset])
+            orbit_mean, orbit_std = mean_std([row["test_orbit_gap_mean"] for row in subset])
             aggregate.append({
                 "group": group, "strategy": strategy,
                 "scenes": len(subset), "psnr_mean": psnr_mean, "psnr_std": psnr_std,
                 "ssim_mean": ssim_mean, "ssim_std": ssim_std,
                 "lpips_mean": lpips_mean, "lpips_std": lpips_std,
                 "resplat_seconds_mean": time_mean, "resplat_seconds_std": time_std,
+                "test_orbit_gap_mean": orbit_mean, "test_orbit_gap_std": orbit_std,
             })
 
     args.output.mkdir(parents=True, exist_ok=True)
@@ -318,8 +354,8 @@ def summarize(args, tasks, failures):
     lines = [
         "# ReSplat Context-Selection Ablation", "",
         "## Aggregate by dataset", "",
-        "| group | strategy | scenes | PSNR mean±std | SSIM mean±std | LPIPS mean±std | ReSplat s mean±std |",
-        "|---|---|---:|---:|---:|---:|---:|",
+        "| group | strategy | scenes | PSNR mean±std | SSIM mean±std | LPIPS mean±std | test orbit gap° | ReSplat s mean±std |",
+        "|---|---|---:|---:|---:|---:|---:|---:|",
     ]
     for row in aggregate:
         lines.append(
@@ -327,11 +363,12 @@ def summarize(args, tasks, failures):
             f"{row['psnr_mean']:.3f}±{row['psnr_std']:.3f} | "
             f"{row['ssim_mean']:.4f}±{row['ssim_std']:.4f} | "
             f"{row['lpips_mean']:.4f}±{row['lpips_std']:.4f} | "
+            f"{row['test_orbit_gap_mean']:.2f}±{row['test_orbit_gap_std']:.2f} | "
             f"{row['resplat_seconds_mean']:.1f}±{row['resplat_seconds_std']:.1f} |")
     lines.extend([
         "", "## Per scene", "",
-        "| group | scene | strategy | status | PSNR | SSIM | LPIPS | ReSplat s |",
-        "|---|---|---|---|---:|---:|---:|---:|",
+        "| group | scene | strategy | status | PSNR | SSIM | LPIPS | orbit gap° | ReSplat s |",
+        "|---|---|---|---|---:|---:|---:|---:|---:|",
     ])
     for row in rows:
         def show(value, digits):
@@ -339,7 +376,8 @@ def summarize(args, tasks, failures):
         lines.append(
             f"| {row['group']} | {row['scene']} | {row['strategy']} | {row['status']} | "
             f"{show(row['psnr'], 3)} | {show(row['ssim'], 4)} | "
-            f"{show(row['lpips'], 4)} | {show(row['resplat_seconds'], 1)} |")
+            f"{show(row['lpips'], 4)} | {show(row['test_orbit_gap_mean'], 2)} | "
+            f"{show(row['resplat_seconds'], 1)} |")
     if failures:
         lines.extend(["", "## Failures", ""])
         lines.extend(f"- `{value}`" for value in failures)
