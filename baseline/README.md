@@ -42,6 +42,27 @@ results/summary.{json,md}        # 汇总表
 - **数据集**：放在仓库根目录的 `datasets/DL3DV`、`datasets/hw`、
   `datasets/mipnerf360`；实际场景由 `baseline/scenes.json` 指定。
 
+当前服务器的数据目录（共 13 个场景；以下数字为已观察到的本地目录结构）：
+
+```text
+datasets/
+├── DL3DV/                 6 个场景，<场景哈希>/images_4/ + transforms.json
+│                          每场景约 305–381 张，图像 960×540
+├── hw/                    4 个场景：car、basketball、billboard、trashbin
+│   └── <场景>/             images/ + 原始 frames_info.txt
+│       ├── sparse/0/       当前供模块 A 读取的相机模型
+│       └── images_undistorted/  与新 PyCOLMAP 模型配对的去畸变图像
+└── mipnerf360/            3 个场景：bicycle、bonsai、counter
+    └── <场景>/             images/ + sparse/0/{cameras,images}.bin
+```
+
+hw 的 `images/` 每场景还含一张与原始 JPG 分辨率不同的 PNG；默认重建只选择
+`frames_info.txt` 时间戳对应的 JPG。旧的 `sparse_0/` 和 `.pycolmap/` 是历史
+工作文件，不是模块 A 默认读取路径。`baseline/scenes.json` 当前各选一个场景：
+DL3DV 的 `001dccbc…5f`、hw 的 `billboard`、mipnerf360 的 `counter`。
+`images_undistorted/` 只有在运行新重建工具后才会出现；若仍有
+`sparse/0/conversion_summary.json`，说明该场景还是旧的直接转换结果。
+
 ### 当前服务器环境（供本地 agent 使用）
 
 - 仓库在 `/mnt/DataPart/jianghongda/wangyanbin_resplat/resplat_hackathon`；
