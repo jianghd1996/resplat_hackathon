@@ -5,8 +5,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import cv2
 import numpy as np
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -35,6 +39,8 @@ class PluginInterfaceTest(unittest.TestCase):
         self.assertEqual(select_context("fps", train_indices, 8, centers), [0, 1, 2, 3])
 
     def test_quality_filter_replaces_soft_uniform_frame_with_nearby_train(self):
+        if cv2 is None:
+            self.skipTest("OpenCV is optional outside quality_filter experiments")
         with tempfile.TemporaryDirectory() as tmp:
             rng = np.random.default_rng(7)
             paths = []

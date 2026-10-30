@@ -1,6 +1,5 @@
 """Replace unusually soft uniform context frames with nearby train frames."""
 
-import cv2
 import numpy as np
 
 from .uniform16 import select as select_uniform16
@@ -9,6 +8,10 @@ MIN_RELATIVE_SHARPNESS = 0.8
 
 
 def select(train_indices, count=16, centers=None, directions=None, image_paths=None):
+    try:
+        import cv2
+    except ImportError as exc:
+        raise RuntimeError("quality_filter requires OpenCV in the ReSplat environment") from exc
     chosen = select_uniform16(train_indices, count)
     if len(chosen) == len(train_indices):
         return chosen
