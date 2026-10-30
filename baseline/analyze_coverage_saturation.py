@@ -198,13 +198,16 @@ def analyze_scene(key, strategy_dirs, args):
             "group": group, "scene": scene, "strategy": strategy,
             "num_context": final_budget, **quality, **final,
             **pose_values(final_names, test_names, poses, order),
-            "last4_union_gain": final["global_union"] - previous["global_union"],
-            "last4_test_support2_gain": final["test_support2"] - previous["test_support2"],
+            # Selectors are rerun at each budget, so this is a 12->16 budget
+            # effect rather than necessarily four nested, newly added views.
+            "budget12_to16_union_gain": final["global_union"] - previous["global_union"],
+            "budget12_to16_test_support2_gain": (
+                final["test_support2"] - previous["test_support2"]),
         }
         row["coverage_saturated"] = bool(
             row["union_vs_all_train"] >= args.saturation_ratio
             and row["test_support1"] >= args.test_support_ratio
-            and row["last4_union_gain"] <= args.max_last4_gain)
+            and row["budget12_to16_union_gain"] <= args.max_budget_gain)
         rows.append(row)
     metadata = {"group": group, "scene": scene, "num_reference_points": len(points),
                 "num_train_views": len(train_names), "num_test_views": len(test_names),
@@ -238,7 +241,7 @@ def aggregate_rows(rows):
     result = []
     fields = ("psnr", "ssim", "lpips", "global_union", "global_support2",
               "test_support1", "test_support2", "union_vs_all_train",
-              "last4_union_gain", "delta_psnr_vs_uniform", "delta_global_union_vs_uniform",
+              "budget12_to16_union_gain", "delta_psnr_vs_uniform", "delta_global_union_vs_uniform",
               "delta_test_support2_vs_uniform")
     for strategy, values in sorted(groups.items()):
         item = {"strategy": strategy, "scenes": len(values),
@@ -351,13 +354,13 @@ def report_markdown(rows, aggregate, correlations, args):
              "Coverage uses one shared, equally pooled ReSplat point set per scene. "
              "Frustum projection ignores occlusion.", "",
              "## uniform16 saturation", "",
-             "| group/scene | union/all train | test >=1 | test >=2 | last 4 union gain | saturated | PSNR |",
+             "| group/scene | union/all train | test >=1 | test >=2 | 12→16 union gain | saturated | PSNR |",
              "|---|---:|---:|---:|---:|:---:|---:|"]
     for row in uniform:
         psnr = "—" if row["psnr"] is None else f"{row['psnr']:.3f}"
         lines.append(f"| {row['group']}/{row['scene']} | {row['union_vs_all_train']:.3f} | "
                      f"{row['test_support1']:.3f} | {row['test_support2']:.3f} | "
-                     f"{100 * row['last4_union_gain']:.2f} pp | "
+                     f"{100 * row['budget12_to16_union_gain']:.2f} pp | "
                      f"{'yes' if row['coverage_saturated'] else 'no'} | {psnr} |")
     lines.extend(["", "## Strategy averages", "",
                   "| strategy | scenes | saturated | PSNR | union/all train | test >=2 | last 4 gain | ΔPSNR vs uniform | Δtest >=2 |",
@@ -368,7 +371,7 @@ def report_markdown(rows, aggregate, correlations, args):
         lines.append(f"| {row['strategy']} | {row['scenes']} | {row['saturated_scenes']} | "
                      f"{show(row['psnr_mean'])} | {show(row['union_vs_all_train_mean'])} | "
                      f"{show(row['test_support2_mean'])} | "
-                     f"{show(100 * row['last4_union_gain_mean'], 2)} pp | "
+                     f"{show(100 * row['budget12_to16_union_gain_mean'], 2)} pp | "
                      f"{show(row['delta_psnr_vs_uniform_mean'])} | "
                      f"{show(100 * row['delta_test_support2_vs_uniform_mean'], 2)} pp |")
     lines.extend(["", "## Cross-case correlations", "",
@@ -378,7 +381,7 @@ def report_markdown(rows, aggregate, correlations, args):
     lines.extend(["", "## Saturation rule", "",
                   f"A case is marked saturated when union/all-train >= {args.saturation_ratio:.2f}, "
                   f"test support >=1 >= {args.test_support_ratio:.2f}, and the final four views add "
-                  f"<= {100 * args.max_last4_gain:.1f} percentage points of union coverage.", "",
+                  f"<= {100 * args.max_budget_gain:.1f} percentage points of union coverage.", "",
                   "This validates geometric view coverage, not texture, occlusion, exposure, or "
                   "ReSplat's learned input-distribution preference."])
     return "\n".join(lines) + "\n"
@@ -397,7 +400,8 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--saturation-ratio", type=float, default=0.95)
     parser.add_argument("--test-support-ratio", type=float, default=0.95)
-    parser.add_argument("--max-last4-gain", type=float, default=0.02)
+    parser.add_argument("--max-budget-gain", type=float, default=0.02,
+                        help="maximum union-coverage gain from budget 12 to 16")
     args = parser.parse_args()
     root = args.ablation_root.resolve()
     output = (args.out or root / "coverage_saturation").resolve()
@@ -433,7 +437,7 @@ def main():
         "definition": "shared pooled ReSplat points; positive-depth in-frame projection; no occlusion",
         "thresholds": {"saturation_ratio": args.saturation_ratio,
                        "test_support_ratio": args.test_support_ratio,
-                       "max_last4_gain": args.max_last4_gain},
+                       "max_budget_gain": args.max_budget_gain},
         "correlations": correlations, "scenes": metadata,
         "per_scene_strategy": rows, "strategy_summary": aggregate,
     }, indent=2))
