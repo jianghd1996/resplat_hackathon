@@ -7,4 +7,5 @@ BACKENDS = {"fastgs": "fastgs.py", "short_budget": "short_budget.py",
             "perceptual_loss": "perceptual_loss.py",
             "terminal_guard": "terminal_guard.py",
             "topology_freeze": "topology_freeze.py",
-            "opacity_state": "opacity_state.py"}
+            "opacity_state": "opacity_state.py",
+            "topology_opacity": "topology_opacity.py"}
