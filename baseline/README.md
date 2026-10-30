@@ -7,8 +7,7 @@ PSNR / SSIM / LPIPS + 总耗时。`datasets/examples` 三组数据各跑一个�
 ## 一键运行
 
 ```bash
-# 0) 一次性环境准备（编译 baseline/3dgs 的 CUDA 子模块，需要 fastgs conda 环境）
-bash setup.sh
+# 0) 仅在缺少 CUDA 扩展的新机器上运行：bash setup.sh
 
 # 1) 一键端到端训练：A -> ReSplat -> B（三组数据各一个场景）
 bash run_train.sh              # 全部；或指定组：bash run_train.sh dl3dv hw
@@ -37,10 +36,40 @@ results/summary.{json,md}        # 汇总表
   `resplat/pretrained/resplat-base-dl3dv-540x960-view16-a72dc6d0.pth`
   （选手从主办方提供的链接下载，放入 `../resplat/pretrained/`，或用
   `run_resplat.py --checkpoint` 指定路径）
-- **fastgs 环境**（模块 B / 渲染）：torch 2.4 + `bash setup.sh` 编译
-  `baseline/3dgs/submodules`（diff-gaussian-rasterization / simple-knn / fused-ssim）
-- **数据集**：选手从主办方链接下载后放入 `../datasets/examples/<group>/<scene>/`
-  （`scenes.json` 配置每组使用的场景）
+- **FastGS / 模块 B**：需要 `simple_knn`、`fused_ssim` 和
+  `diff_gaussian_rasterization_fastgs` CUDA 扩展。新机器可按 `setup.sh` 准备；
+  该脚本还会从指定 FastGS 提交获取光栅器源码。
+- **数据集**：放在仓库根目录的 `datasets/DL3DV`、`datasets/hw`、
+  `datasets/mipnerf360`；实际场景由 `baseline/scenes.json` 指定。
+
+### 当前服务器环境（供本地 agent 使用）
+
+- 仓库在 `/mnt/DataPart/jianghongda/wangyanbin_resplat/resplat_hackathon`；
+  已配置的 Python 是 `/mnt/DataPart/jianghongda/env/resplat/bin/python`，
+  其中 PyTorch 为 `2.7.0+cu126`、PyCOLMAP 为 `3.10.0`，GPU 可用。
+  这同一环境也能导入上述三个 FastGS CUDA 扩展，因此训练和评测均可用它。
+- `/mnt/DataPart/jianghongda/env/3dgs` 是另一个环境（PyTorch `2.6.0+cu124`），
+  未安装 `simple_knn`，不能直接作为本仓库的 FastGS 环境。服务器有
+  `/usr/local/cuda-12.8/bin/nvcc`。Conda 列表里还有同名的其他 `resplat`
+  环境，请用绝对路径选择上面的环境。
+- 本机的模型权重位于仓库根目录 `pretrained/`；`run_resplat.py` 默认查找
+  `resplat/pretrained/`。直接调用时传 `--checkpoint` 指向根目录中的权重；
+  使用 `run_train.sh` 前需让默认路径能找到该文件。
+- hw 的默认位姿重建使用 PyCOLMAP，不需要 `colmap` CLI；输入为
+  `frames_info.txt` 对应的原始 JPG，并执行特征提取、匹配、建图和去畸变。
+  无位姿且没有 `frames_info.txt` 的其他数据，仍走 COLMAP CLI 分支。
+
+在该服务器运行一键脚本时，明确指定两个环境为同一绝对路径：
+
+```bash
+cd /mnt/DataPart/jianghongda/wangyanbin_resplat/resplat_hackathon
+# 当前服务器的权重在根目录 pretrained/；让默认路径指向它
+test -e resplat/pretrained || test -L resplat/pretrained || ln -s ../pretrained resplat/pretrained
+cd baseline
+RESPLAT_ENV=/mnt/DataPart/jianghongda/env/resplat \
+FASTGS_ENV=/mnt/DataPart/jianghongda/env/resplat \
+bash run_train.sh hw
+```
 
 ## 流水线设计（baseline 的具体选择）
 
@@ -107,20 +136,23 @@ results/summary.{json,md}        # 汇总表
   （PSNR/SSIM/VGG-LPIPS，与榜单同源）对比 GT → `metrics.json`
 - `summarize.py` 汇总各阶段计时与指标
 
-## 已验证的基线结果（RTX 4090 24GB，从零一键重跑）
+## 历史基线结果（RTX 4090 24GB）
 
 | group | scene | PSNR | SSIM | LPIPS | A(s) | resplat(s) | B(s) | **total(s)** | 经典30k参考(s) | 参考 PSNR |
 |---|---|---|---|---|---|---|---|---|---|---|
 | dl3dv | 001dccbc…5f | 20.47 | 0.652 | 0.457 | 31.5 | 18.1 | 213.7 | **263.2** | 435.0 | 19.49 |
-| hw | basketball | 12.12 | 0.265 | 0.661 | 101.3 | 15.6 | 167.6 | **284.6** | 442.2 | 10.00 |
+| hw | billboard | 22.68 | 0.799 | 0.159 | — | — | — | **143** | 915 | 16.75 |
 | mipnerf360 | counter | 14.43 | 0.453 | 0.688 | 54.5 | 18.9 | 283.8 | **357.3** | 736.6 | 11.77 |
 
-- 三组数据上，基线管线比经典 3DGS 30k 从头训练（随机初始化、同一 A 产物）
-  **快 1.5~2.1 倍且 PSNR 全部更高**——基线已满足比赛目标；
-  选手需在此基础上继续压缩时间 / 提升质量
-- hw 与 mipnerf360 的绝对指标偏低是 ReSplat（DL3DV 视频数据训练）在这些
-  分布外场景上的真实表现（官方 `infer_colmap.py` 直接跑 counter 也只有 13.6），
-  这正是选手 A/B 模块的创新空间
+`billboard` 行取自仓库根目录 README 已记录的结果；该记录没有保存 A、ReSplat、
+B 的分段耗时，因此用 `—` 表示，不能用之前 `basketball` 的分段耗时填入。
+其余两行是较早的复跑记录。仓库未提交这些历史运行的 `metrics.json` 和日志；
+在当前服务器复跑时，应以新生成的 `metrics.json`、`module_a.json`、
+`resplat.json` 和 `module_b.json` 为准，不要把不同运行的时间相加。
+
+- 表中三个场景的总耗时都低于所列经典 3DGS 30k 参考耗时，PSNR 也更高。
+- mipnerf360 的绝对指标较低，反映 ReSplat 在 DL3DV 视频数据之外的分布差异
+  （官方 `infer_colmap.py` 直接跑 counter 也只有 13.6）。
 
 ## 关键调研结论（写代码前的验证工作）
 
