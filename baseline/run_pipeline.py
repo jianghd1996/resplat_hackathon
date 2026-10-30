@@ -42,6 +42,10 @@ def main(argv=None):
     parser.add_argument("--module-b", choices=sorted(BACKENDS), default="fastgs")
     parser.add_argument("--num-context", type=int, default=16)
     parser.add_argument("--iterations", type=int, default=10000)
+    parser.add_argument(
+        "--resplat-only", action="store_true",
+        help="stop after ReSplat, render its world-space PLY on test views, and evaluate",
+    )
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--resplat-python", type=Path, default=Path(sys.executable))
     parser.add_argument("--fastgs-python", type=Path)
@@ -81,6 +85,45 @@ def main(argv=None):
          "--out", resplat, "--checkpoint", checkpoint])
     fastgs_env = os.environ.copy()
     fastgs_env["PYTHONPATH"] = str(ROOT / "fastgs") + os.pathsep + fastgs_env.get("PYTHONPATH", "")
+
+    if args.resplat_only:
+        # Reuse the standard FastGS renderer without running any optimization.
+        # Scene expects the conventional point_cloud/iteration_N layout.
+        eval_model = output / "resplat_eval"
+        eval_iteration = 1
+        eval_point_dir = eval_model / "point_cloud" / f"iteration_{eval_iteration}"
+        eval_point_dir.mkdir(parents=True, exist_ok=True)
+        resplat_ply = resplat / "resplat_world.ply"
+        if not resplat_ply.is_file():
+            raise FileNotFoundError(f"ReSplat PLY missing: {resplat_ply}")
+        shutil.copy2(resplat_ply, eval_point_dir / "point_cloud.ply")
+        run([fastgs_python, ROOT / "utils_B" / f"{args.module_b}.py", "render",
+             "--work", work, "--out", eval_model,
+             "--iterations", eval_iteration], fastgs_env)
+        run([resplat_python, ROOT / "evaluate.py", "--model_path", eval_model])
+
+        a = read_json(work / "module_a.json")
+        r = read_json(resplat / "resplat.json")
+        metrics = read_json(eval_model / "metrics.json")
+        report = {
+            "scene": str(scene), "group": group,
+            "module_a": args.module_a, "module_b": args.module_b,
+            "resplat_only": True,
+            "checkpoint": str(checkpoint.resolve()),
+            "num_test_views": metrics["num_views"],
+            "metrics": metrics["mean"],
+            "time_A": a["total_seconds"], "time_resplat": r["total_seconds"],
+            "time_B": 0.0,
+            "time_total": round(a["total_seconds"] + r["total_seconds"], 3),
+            "pose_source": a["pose_source"],
+            "model_ply": str(resplat_ply),
+            "renders": str(eval_model / "test_renders"),
+        }
+        with open(output / "report.json", "w", encoding="utf-8") as stream:
+            json.dump(report, stream, indent=2, ensure_ascii=False)
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return
+
     run([fastgs_python, ROOT / "utils_B" / f"{args.module_b}.py", "train",
          "--work", work, "--out", model, "--init-ply", resplat / "resplat_world.ply",
          "--iterations", args.iterations], fastgs_env)
