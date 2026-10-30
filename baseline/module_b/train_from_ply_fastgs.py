@@ -73,6 +73,29 @@ def random_frustum_init(scene, num_points, sh_degree):
     return BasicPointCloud(points=xyz, colors=rgb, normals=np.zeros_like(xyz))
 
 
+def budgeted_growth_mask(gaussians, importance_score, opt, extent, max_points):
+    """Keep the highest-gradient eligible growth sites within the point budget."""
+    n = gaussians.get_xyz.shape[0]
+    room = max(0, max_points - n)
+    grad = gaussians.xyz_gradient_accum / gaussians.denom
+    grad_abs = gaussians.xyz_gradient_accum_abs / gaussians.denom
+    grad = torch.nan_to_num(grad.squeeze(-1))
+    grad_abs = torch.nan_to_num(grad_abs.squeeze(-1))
+    scale = gaussians.get_scaling.max(dim=1).values
+    eligible = (importance_score > 5) & (
+        ((scale <= opt.dense * extent) & (grad >= opt.grad_thresh)) |
+        ((scale > opt.dense * extent) & (grad_abs >= opt.grad_abs_thresh)))
+    eligible_count = int(eligible.sum().item())
+    selected_count = min(room, eligible_count)
+    masked = torch.zeros_like(importance_score)
+    if selected_count:
+        priority = torch.where(eligible, torch.maximum(grad, grad_abs),
+                               torch.full_like(grad, -1.0))
+        selected = torch.topk(priority, selected_count).indices
+        masked[selected] = importance_score[selected]
+    return masked, eligible_count, selected_count
+
+
 def training(dataset, opt, pipe, args):
     t_total0 = time.time()
 
@@ -84,7 +107,8 @@ def training(dataset, opt, pipe, args):
         f.write(str(Namespace(**vars(dataset))))
 
     t0 = time.time()
-    scene = Scene(dataset, gaussians)
+    scene = Scene(dataset, gaussians,
+                  resolution_scales=[1.0, 2.0] if args.coarse_to_fine else [1.0])
     scene_load_s = time.time() - t0
 
     t0 = time.time()
@@ -103,24 +127,38 @@ def training(dataset, opt, pipe, args):
     gaussians.training_setup(opt)
     gaussians.max_radii2D = torch.zeros((gaussians.get_xyz.shape[0]), device="cuda")
     init_s = time.time() - t0
+    max_points = n_init if args.topk_growth else None
+    growth_eligible_total = 0
+    growth_selected_total = 0
+    peak_gaussians = n_init
+    coarse_seconds = None
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
-    viewpoint_stack = scene.getTrainCameras().copy()
+    coarse_until = round(opt.iterations * 0.4) if args.coarse_to_fine else 0
+    active_scale = 2.0 if args.coarse_to_fine else 1.0
+    train_cameras = scene.getTrainCameras(active_scale)
+    viewpoint_stack = train_cameras.copy()
     viewpoint_indices = list(range(len(viewpoint_stack)))
     ema_loss_for_log = 0.0
 
     t_train0 = time.time()
     progress_bar = tqdm(range(1, opt.iterations + 1), desc="FastGS training")
     for iteration in range(1, opt.iterations + 1):
+        if args.coarse_to_fine and iteration == coarse_until + 1:
+            coarse_seconds = time.time() - t_train0
+            active_scale = 1.0
+            train_cameras = scene.getTrainCameras(active_scale)
+            viewpoint_stack = train_cameras.copy()
+            viewpoint_indices = list(range(len(viewpoint_stack)))
         gaussians.update_learning_rate(iteration)
 
         if iteration % 1000 == 0:
             gaussians.oneupSHdegree()
 
         if not viewpoint_stack:
-            viewpoint_stack = scene.getTrainCameras().copy()
+            viewpoint_stack = train_cameras.copy()
             viewpoint_indices = list(range(len(viewpoint_stack)))
         rand_idx = randint(0, len(viewpoint_indices) - 1)
         viewpoint_cam = viewpoint_stack.pop(rand_idx)
@@ -160,14 +198,28 @@ def training(dataset, opt, pipe, args):
                 if iteration > opt.densify_from_iter and \
                         iteration % opt.densification_interval == 0:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                    camlist = sampling_cameras(scene.getTrainCameras().copy())
+                    camlist = sampling_cameras(train_cameras.copy())
                     importance_score, pruning_score = compute_gaussian_score_fastgs(
                         camlist, gaussians, pipe, background, opt, DENSIFY=True)
+                    if args.topk_growth:
+                        importance_score, eligible_count, selected_count = budgeted_growth_mask(
+                            gaussians, importance_score, opt, scene.cameras_extent, max_points)
+                        growth_eligible_total += eligible_count
+                        growth_selected_total += selected_count
                     gaussians.densify_and_prune_fastgs(
                         max_screen_size=size_threshold, min_opacity=0.005,
                         extent=scene.cameras_extent, radii=radii, args=opt,
                         importance_score=importance_score,
                         pruning_score=pruning_score)
+                    if args.topk_growth and gaussians.get_xyz.shape[0] > max_points:
+                        overflow = gaussians.get_xyz.shape[0] - max_points
+                        lowest = torch.topk(gaussians.get_opacity.squeeze(-1), overflow,
+                                            largest=False).indices
+                        prune = torch.zeros(gaussians.get_xyz.shape[0],
+                                            dtype=torch.bool, device="cuda")
+                        prune[lowest] = True
+                        gaussians.prune_points(prune)
+                    peak_gaussians = max(peak_gaussians, int(gaussians.get_xyz.shape[0]))
                 reset_due = (iteration % opt.opacity_reset_interval == 0 or
                              (dataset.white_background and iteration == opt.densify_from_iter))
                 if (reset_due and not args.disable_opacity_reset
@@ -187,6 +239,8 @@ def training(dataset, opt, pipe, args):
                                         pruning_score=pruning_score)
 
     train_s = time.time() - t_train0
+    if args.coarse_to_fine and coarse_seconds is None:
+        coarse_seconds = train_s
 
     scene.save(opt.iterations)
     total_s = time.time() - t_total0
@@ -215,6 +269,15 @@ def training(dataset, opt, pipe, args):
         "iterations": int(opt.iterations),
         "skip_final_opacity_reset": bool(args.skip_final_opacity_reset),
         "disable_opacity_reset": bool(args.disable_opacity_reset),
+        "topk_growth": bool(args.topk_growth),
+        "growth_point_budget": max_points,
+        "growth_eligible_total": growth_eligible_total if args.topk_growth else None,
+        "growth_selected_total": growth_selected_total if args.topk_growth else None,
+        "peak_gaussians": peak_gaussians if args.topk_growth else None,
+        "coarse_to_fine": bool(args.coarse_to_fine),
+        "coarse_until_iteration": coarse_until if args.coarse_to_fine else None,
+        "coarse_seconds": round(coarse_seconds, 2) if coarse_seconds is not None else None,
+        "fine_seconds": round(train_s - coarse_seconds, 2) if coarse_seconds is not None else None,
         "mult": opt.mult,
         "num_train_views": len(scene.getTrainCameras()),
         "num_test_views": len(scene.getTestCameras()),
@@ -244,6 +307,10 @@ if __name__ == "__main__":
                         help="skip all scheduled opacity resets during short training")
     parser.add_argument("--final_prune_fastgs", action="store_true",
                         help="apply FastGS multiview final prune before saving")
+    parser.add_argument("--topk_growth", action="store_true",
+                        help="limit densification to highest-gradient eligible sites under input point count")
+    parser.add_argument("--coarse_to_fine", action="store_true",
+                        help="train first 40 percent of steps at half image width and height")
     args = parser.parse_args()
     args.save_iterations = [args.iterations]
     args.test_iterations = []
