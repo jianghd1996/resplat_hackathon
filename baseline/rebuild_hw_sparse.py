@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replace marked frames_info conversions with PyCOLMAP and paired undistorted images.
+"""Build missing HW sparse models or replace marked conversions with PyCOLMAP.
 
 Dry run by default. Existing models are archived outside the scene before replacement.
 """
@@ -52,32 +52,38 @@ def rebuild(scene, backup_root):
         if missing:
             raise RuntimeError(f"Missing undistorted registered images: {missing[:5]}")
 
-        backup = backup_root / scene.name
-        if backup.exists():
-            raise FileExistsError(f"Backup already exists: {backup}")
-        backup.mkdir(parents=True)
         old_sparse = scene / "sparse"
         old_images = scene / "images_undistorted"
+        has_old = old_sparse.exists() or old_images.exists()
+        backup = backup_root / scene.name
+        if has_old:
+            if backup.exists():
+                raise FileExistsError(f"Backup already exists: {backup}")
+            backup.mkdir(parents=True)
+        installed_sparse = False
         try:
             if old_sparse.exists():
                 os.replace(old_sparse, backup / "sparse")
             if old_images.exists():
                 os.replace(old_images, backup / "images_undistorted")
             os.replace(staging / "sparse", scene / "sparse")
+            installed_sparse = True
             os.replace(images_stage, old_images)
         except Exception:
             # Restore the previous usable pair if installation fails halfway.
+            if installed_sparse and (scene / "sparse").exists():
+                shutil.rmtree(scene / "sparse")
             if (backup / "sparse").exists():
-                if (scene / "sparse").exists():
-                    shutil.rmtree(scene / "sparse")
                 os.replace(backup / "sparse", scene / "sparse")
             if (backup / "images_undistorted").exists():
                 if old_images.exists():
                     shutil.rmtree(old_images)
                 os.replace(backup / "images_undistorted", old_images)
             raise
-        print(f"[OK] {scene.name}: {len(result['poses'])}/{len(images)} registered; "
-              f"old sparse archived at {backup}")
+        message = f"[OK] {scene.name}: {len(result['poses'])}/{len(images)} registered"
+        if has_old:
+            message += f"; old inputs archived at {backup}"
+        print(message)
     finally:
         shutil.rmtree(staging)
 
@@ -86,21 +92,29 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent.parent / "datasets/hw")
     parser.add_argument("--backup-dir", type=Path, required=True)
-    parser.add_argument("--apply", action="store_true", help="reconstruct and archive marked old models")
+    parser.add_argument("--apply", action="store_true", help="build missing models or replace marked old models")
     parser.add_argument("scenes", nargs="*", help="scene names (default: all directories under root)")
     args = parser.parse_args()
     root = args.root.resolve()
     scenes = [root / name for name in args.scenes] if args.scenes else sorted(p for p in root.iterdir() if p.is_dir())
     for scene in scenes:
         marker = scene / "sparse/0/conversion_summary.json"
+        paired_marker = scene / "sparse/0/pycolmap_undistorted.json"
+        sparse = scene / "sparse"
+        undistorted = scene / "images_undistorted"
         if not (scene / "frames_info.txt").is_file():
             print(f"[SKIP] {scene.name}: no frames_info.txt")
-        elif not marker.is_file():
-            print(f"[SKIP] {scene.name}: sparse/0 is not marked as a direct frames_info conversion")
+        elif paired_marker.is_file() and undistorted.is_dir():
+            print(f"[SKIP] {scene.name}: PyCOLMAP sparse and undistorted images already exist")
+        elif sparse.exists() and not marker.is_file():
+            print(f"[SKIP] {scene.name}: unmarked sparse model exists; inspect before replacing")
+        elif undistorted.exists() and not marker.is_file():
+            print(f"[SKIP] {scene.name}: unpaired images_undistorted exists; inspect before replacing")
         elif args.apply:
             rebuild(scene, args.backup_dir.resolve())
         else:
-            print(f"[PLAN] {scene.name}: archive direct conversion, rebuild from "
+            action = "archive direct conversion and rebuild" if marker.is_file() else "build new model"
+            print(f"[PLAN] {scene.name}: {action} from "
                   f"{len(source_images(scene))} original JPGs, save undistorted images")
     if not args.apply:
         print("Dry run only; pass --apply to run reconstruction")

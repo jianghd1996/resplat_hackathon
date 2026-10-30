@@ -117,11 +117,18 @@ bash run_train.sh hw
 4. **划分**：llffhold=8（与经典 3DGS 一致，每 8 张留 1 张作测试）；
    16 个 context 视角从**训练集**中 `np.linspace` 均匀选出（不接触测试视角）
 
-已用 `frames_info_to_colmap.py` 直接转换过的 hw 场景，可以先用
-`python baseline/rebuild_hw_sparse.py --root datasets/hw --backup-dir /path/to/backup`
-预览。确认后加 `--apply`：脚本只处理带 `sparse/0/conversion_summary.json`
-标记的旧模型，从原始 JPG 重新建图，把旧 `sparse/` 归档到指定目录，并保存
-新的 `sparse/0/` 与配套的 `images_undistorted/`。`sparse_0/` 不会被改动。
+首次为 `datasets/hw` 生成位姿时，在仓库根目录运行：
+
+```bash
+python baseline/rebuild_hw_sparse.py --root datasets/hw --backup-dir datasets/hw_backup
+python baseline/rebuild_hw_sparse.py --root datasets/hw --backup-dir datasets/hw_backup --apply
+```
+
+第一条预览，第二条对缺少 `sparse/` 的场景用 PyCOLMAP 建图，并成对保存
+`sparse/0/` 和 `images_undistorted/`。如果场景带有旧的
+`sparse/0/conversion_summary.json`，脚本会重新建图，并将旧模型归档到
+`--backup-dir`。已有其他未标记的 `sparse/` 时会跳过，避免覆盖。
+`sparse_0/` 不会被改动。可在命令末尾指定场景名，例如 `billboard`。
 
 ### ReSplat 阶段（`run_resplat.py`，resplat 环境）
 
