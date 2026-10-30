@@ -26,8 +26,18 @@ def utc_now():
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
-def completed_pipeline(output):
-    return (output / "report.json").is_file()
+def completed_pipeline(output, iterations):
+    """Accept both current reports and the complete legacy symlink layout."""
+    if (output / "report.json").is_file():
+        return True
+    required = (
+        output / "work/module_a.json",
+        output / "resplat/resplat.json",
+        output / "module_b/module_b.json",
+        output / "module_b/metrics.json",
+        output / f"module_b/point_cloud/iteration_{iterations}/point_cloud.ply",
+    )
+    return all(path.is_file() for path in required)
 
 
 def completed_reference(output):
@@ -45,7 +55,7 @@ def pipeline_job(scene, variant, gpu, commit):
     else:
         output, backend, iterations = (
             SOTA / scene["group"] / scene["scene"], "topology_opacity", 7000)
-    if completed_pipeline(output):
+    if completed_pipeline(output, iterations):
         return f"reuse {variant} {scene['group']}/{scene['scene']}"
     if output.exists():
         raise FileExistsError(f"incomplete output exists; refusing overwrite: {output}")
