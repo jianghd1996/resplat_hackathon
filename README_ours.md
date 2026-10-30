@@ -1,6 +1,6 @@
 # 我们的 A/B 插件实验入口
 
-本仓库固定使用赛题 ReSplat 代码与预训练权重，只替换前处理 A 与接续优化 B。当前可运行的组合是 `uniform16`（baseline A）和 `fastgs`（baseline B）。A 对训练视角按图像名称排序后用 `linspace` 均匀选最多 16 张；B 从 ReSplat 导出的 PLY 用 FastGS 训练 10000 步。接口分别在 `baseline/utils_A/` 与 `baseline/utils_B/`，技术优先级见 `md/plan_v0.md`，历史和复现表格见 `md/main_table.md`。
+本仓库固定使用赛题 ReSplat 代码与预训练权重，只替换前处理 A 与接续优化 B。当前可运行的组合是 `uniform16`（baseline A）和 `fastgs`（baseline B）。A 对训练视角按图像名称排序后用 `linspace` 均匀选最多 16 张；B 从 ReSplat 导出的 PLY 用 FastGS 训练 10000 步。接口分别在 `baseline/utils_A/` 与 `baseline/utils_B/`；后续 agent 的验证与记录流程见 `md/agent_workflow.md`，技术优先级见 `md/plan_v0.md`，历史和复现表格见 `md/main_table.md`。
 
 ## 数据与环境
 
