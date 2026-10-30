@@ -14,7 +14,7 @@ SCENES = json.loads((ROOT / "baseline/scenes.json").read_text())
 START = "<!-- V1_RESULTS_START -->"
 END = "<!-- V1_RESULTS_END -->"
 BACKENDS = ("terminal_guard", "topology_freeze", "opacity_state", "topology_opacity",
-            "surface_split")
+            "surface_split", "surface_topology")
 
 
 def read(path):
@@ -93,6 +93,10 @@ def main():
                               "增密时刻、评分、剪枝、loss与opacity规则，只替换两子点split算子。",
                               "子点在父高斯两个最大局部轴构成的切平面反对称位移，切向尺度除以√2，",
                               "最短法向尺度保持不变；参数跨三场景相同。", ""])
+            elif backend == "surface_topology":
+                lines.extend(["B 代码为 `baseline/utils_B/surface_topology.py`：组合两个已完成单项，",
+                              "5600步前使用surface_split守恒算子，随后1400步固定拓扑恢复；",
+                              "总预算、loss、opacity与学习率日程不变，参数跨三场景相同。", ""])
             else:
                 if backend == "opacity_state":
                     lines.extend(["B 代码为 `baseline/utils_B/opacity_state.py`：保持7000步、密集化、0.8 opacity限幅",

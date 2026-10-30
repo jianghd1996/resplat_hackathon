@@ -21,6 +21,7 @@ from utils_B import short_budget  # noqa: E402
 from utils_B import regularized  # noqa: E402
 from utils_B import no_reset  # noqa: E402
 from utils_B import surface_split  # noqa: E402
+from utils_B import surface_topology  # noqa: E402
 from collect_results import add_baseline_deltas, collect  # noqa: E402
 import run_pipeline  # noqa: E402
 
@@ -153,6 +154,26 @@ class PluginInterfaceTest(unittest.TestCase):
             record = json.loads((out / "module_b.json").read_text())
             self.assertEqual(record["adapter"], "surface_split")
             self.assertTrue(record["preserve_normal_scale"])
+
+    def test_surface_topology_adapter_combines_two_verified_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            calls = []
+
+            def fake_run(command, **_):
+                calls.append(command)
+                (out / "module_b.json").write_text('{"total_seconds": 10}')
+
+            args = ["surface_topology.py", "train", "--work", "work", "--out", str(out),
+                    "--init-ply", "init.ply", "--iterations", "7000"]
+            with patch.object(surface_topology.subprocess, "run", side_effect=fake_run):
+                with patch.object(sys, "argv", args):
+                    surface_topology.main()
+            self.assertIn("--surface_conserving_split", calls[0])
+            self.assertEqual(calls[0][-2:], ["--densify_until_iter", "5601"])
+            record = json.loads((out / "module_b.json").read_text())
+            self.assertEqual(record["adapter"], "surface_topology")
+            self.assertEqual(record["last_densification_iteration"], 5600)
 
     def test_collects_external_billboard_report_without_stage_files(self):
         with tempfile.TemporaryDirectory() as tmp:
