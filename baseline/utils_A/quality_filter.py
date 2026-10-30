@@ -7,7 +7,8 @@ from .uniform16 import select as select_uniform16
 MIN_RELATIVE_SHARPNESS = 0.8
 
 
-def select(train_indices, count=16, centers=None, directions=None, image_paths=None):
+def select(train_indices, count=16, centers=None, directions=None, image_paths=None,
+           track_sets=None):
     try:
         import cv2
     except ImportError as exc:

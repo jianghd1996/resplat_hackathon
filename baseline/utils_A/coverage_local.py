@@ -3,7 +3,8 @@
 import numpy as np
 
 
-def select(train_indices, count=16, centers=None, directions=None, image_paths=None):
+def select(train_indices, count=16, centers=None, directions=None, image_paths=None,
+           track_sets=None):
     if count < 1:
         raise ValueError("context count must be positive")
     n = len(train_indices)

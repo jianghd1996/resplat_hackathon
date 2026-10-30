@@ -125,6 +125,43 @@ def main():
                           "-0.0099/-0.0038/-0.0129，但最终高斯数增加约23.5%/17.6%/45.4%，",
                           "B 用时增加10.33/3.45/8.50秒；counter的B约为经典30k纯训练时间的11.0%。",
                           "该单项属于质量优先候选，尚未保持10%时间档。", ""])
+    a_root = RESULTS / "covisibility_guarded_A_no_reset7000_B"
+    if a_root.is_dir():
+        rows = []
+        for group, info in SCENES.items():
+            scene = info["scene"]
+            path = a_root / group / scene
+            if not (path / "report.json").exists():
+                continue
+            historical_split = read(RESULTS / "baseline_A_no_reset7000_B" / group / scene /
+                                    "work/split.json")
+            current_split = read(path / "work/split.json")
+            for key in ("train", "test", "resolution"):
+                assert current_split[key] == historical_split[key]
+            candidate = collect(path)
+            baseline = collect(RESULTS / "baseline_A_baseline_B" / group / scene)
+            reference = read(RESULTS / "baseline_A_baseline_B" / group / scene /
+                             "reference_3dgs/module_b.json")
+            rows.append((group, scene, candidate, baseline, reference, path))
+        if rows:
+            completed += len(rows)
+            lines.extend(["### covisibility_guarded(A) + no_reset7000(B)", "",
+                          "A 代码为 `baseline/utils_A/covisibility_guarded.py`：从均匀16帧开始，保护序列端点和分区，",
+                          "最多交换2帧；只接受训练轨迹并集增加、每视图支持p10不降、平均最近相机距离不超过",
+                          "均匀策略1.1倍且最大序号间隙不超过2倍的候选。缺少训练轨迹时回退均匀16帧。",
+                          "B 固定为既有 `no_reset7000`，只测试A。", "",
+                          "| **group** | **scene** | **PSNR (Δ)** | **SSIM (Δ)** | **LPIPS (Δ)** | **A(s) (Δ)** | **ReSplat(s) (Δ)** | **B(s) (Δ)** | **总耗时(s) (Δ)** | **经典30k参考** |",
+                          "|---|---|---:|---:|---:|---:|---:|---:|---:|---|"])
+            for group, scene, new, old, ref, path in rows:
+                fields = [group, (scene[:8]+"…" if group == "dl3dv" else scene),
+                          fmt(new["metric"]["psnr"], old["metric"]["psnr"], 3),
+                          fmt(new["metric"]["ssim"], old["metric"]["ssim"], 4),
+                          fmt(new["metric"]["lpips"], old["metric"]["lpips"], 4),
+                          fmt(new["A"], old["A"], 3), fmt(new["ReSplat"], old["ReSplat"], 3),
+                          fmt(new["B"], old["B"], 3), f'**{fmt(new["total"], old["total"], 3)}**',
+                          f'{ref["total_seconds"]}s / {ref["test_psnr_quick"]}']
+                lines.append("| " + " | ".join(fields) + " |")
+            lines.extend(["", "源数据与校验口径同上；三场景参数统一，选择器不读取测试图像或测试指标。", ""])
     if not completed:
         lines.append("正式单次实验尚未完成；早期重复运行只用于诊断，未入主表。")
     text = TARGET.read_text()

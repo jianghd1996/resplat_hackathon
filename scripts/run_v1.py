@@ -19,8 +19,9 @@ RESPLAT_PY = Path("/home/wangyb/miniconda3/envs/resplat/bin/python")
 FASTGS_PY = Path("/home/wangyb/miniconda3/envs/fastgs/bin/python")
 
 
-def job(group, info, backend, gpu, commit):
-    label = f"baseline_A_{backend}7000_B"
+def job(group, info, module_a, backend, gpu, commit):
+    a_label = "baseline" if module_a == "uniform16" else module_a
+    label = f"{a_label}_A_{backend}7000_B"
     output = ROOT / "results" / label / group / info["scene"]
     if output.exists():
         raise FileExistsError(f"Refusing to overwrite experiment: {output}")
@@ -28,11 +29,11 @@ def job(group, info, backend, gpu, commit):
     cmd = [str(RESPLAT_PY), str(ROOT / "baseline/run_pipeline.py"),
            "--scene", str(ROOT / info["source"] / info["scene"]),
            "--output", str(output), "--group", group,
-           "--module-a", "uniform16", "--module-b", backend,
+           "--module-a", module_a, "--module-b", backend,
            "--iterations", "7000", "--fastgs-python", str(FASTGS_PY)]
     env = os.environ.copy()
     env.update(CUDA_VISIBLE_DEVICES=str(gpu), PYTHONUNBUFFERED="1")
-    manifest = {"backend": backend, "iterations": 7000, "seed": 0,
+    manifest = {"module_a": module_a, "backend": backend, "iterations": 7000, "seed": 0,
                 "gpu_physical_index": gpu, "git_commit": commit,
                 "command": cmd, "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat()}
     (output / "v1_run.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -50,8 +51,9 @@ def job(group, info, backend, gpu, commit):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--backend", choices=("terminal_guard", "topology_freeze", "opacity_state",
-                                         "topology_opacity"), required=True)
+    ap.add_argument("--module-a", choices=("uniform16", "covisibility_guarded"), default="uniform16")
+    ap.add_argument("--backend", choices=("no_reset", "terminal_guard", "topology_freeze",
+                                         "opacity_state", "topology_opacity"), required=True)
     ap.add_argument("--groups", nargs="+", choices=tuple(SCENES), default=list(SCENES))
     ap.add_argument("--gpus", nargs="+", type=int, choices=(0, 1), default=[0, 1])
     args = ap.parse_args()
@@ -60,7 +62,8 @@ def main():
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     tasks = [(group, SCENES[group]) for group in args.groups]
     for group, info in tasks:
-        target = ROOT / "results" / f"baseline_A_{args.backend}7000_B" / group / info["scene"]
+        a_label = "baseline" if args.module_a == "uniform16" else args.module_a
+        target = ROOT / "results" / f"{a_label}_A_{args.backend}7000_B" / group / info["scene"]
         if target.exists():
             ap.error(f"experiment output already exists: {target}")
     pending = queue.Queue()
@@ -74,7 +77,7 @@ def main():
             except queue.Empty:
                 break
             try:
-                job(group, info, args.backend, gpu, commit)
+                job(group, info, args.module_a, args.backend, gpu, commit)
             finally:
                 pending.task_done()
 

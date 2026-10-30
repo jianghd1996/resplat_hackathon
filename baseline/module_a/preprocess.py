@@ -571,8 +571,20 @@ def write_work_dir(out_dir, scene_dir, pose_dict, num_context, llffhold, max_res
     train_centers = np.stack([centers_by_name[order[i]] for i in train_idx])
     train_directions = np.stack([directions_by_name[order[i]] for i in train_idx])
     train_image_paths = [os.path.join(img_out, order[i]) for i in train_idx]
+    train_track_sets = None
+    source_images = os.path.join(scene_dir, "sparse/0/images.bin")
+    if os.path.isfile(source_images):
+        source = read_extrinsics_binary(source_images)
+        tracks_by_stem = {
+            os.path.splitext(image.name)[0]: set(map(int, image.point3D_ids[image.point3D_ids >= 0]))
+            for image in source.values()
+        }
+        stems = [os.path.splitext(order[i])[0] for i in train_idx]
+        if all(stem in tracks_by_stem for stem in stems):
+            train_track_sets = [tracks_by_stem[stem] for stem in stems]
     ctx = select_context(module_a, train_idx, num_context, centers=train_centers,
-                         directions=train_directions, image_paths=train_image_paths)
+                         directions=train_directions, image_paths=train_image_paths,
+                         track_sets=train_track_sets)
     split = {
         "images": order,
         "train": [order[i] for i in train_idx],
